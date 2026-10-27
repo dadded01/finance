@@ -111,14 +111,15 @@
   .lockv { padding: 8px 2px; font-variant-numeric: tabular-nums; }
 
   /* ---- saldi dalle banche ---- */
-  .bkbtn { padding: 8px 16px; font-size: 14px; }
-  .bkrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .bkbtn { padding: 7px 14px; font-size: 14px; }
+  .bkrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); min-height: 40px; }
   .bkn { font-weight: 550; }
-  .bks { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
-  .bkr { text-align: right; flex: 0 0 auto; }
-  .bkact { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; }
+  .bks { font-size: 12px; font-weight: 500; margin-top: 0; }
+  .bks.warn { color: #d97706; }
+  .bkr { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .bkact { border: 0; border-radius: 999px; padding: 6px 13px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; }
   .bkact:disabled { opacity: .4; }
-  .bknote { font-size: 13px; padding: 6px 0 2px; }
+  .bknote { font-size: 12.5px; padding: 6px 0 0; }
 
   /* ---- storico ---- */
   .hhead { margin: 4px 4px 16px; }
@@ -818,34 +819,19 @@ function bankCard() {
   let h = `<section class="card"><div class="cardhead"><span>Saldi dalle banche</span>
     <button class="btn bkbtn" data-bankcalc ${B.busy || !st ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : 'Calcola'}</button></div>`;
   if (!st) {
-    return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico lo stato dei collegamenti…'}</div></section>`;
+    return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico…'}</div></section>`;
   }
   h += st.map(b => {
     const c = B.calc && B.calc.banks.find(x => x.key === b.key);
-    let sub, act = '';
-    if (!b.connected) { sub = 'non collegata'; act = 'Collega'; }
-    else if (b.expired) { sub = 'consenso scaduto'; act = 'Rinnova'; }
-    else {
-      sub = 'collegata' + (b.days === null ? '' : ' · scade tra ' + b.days + (b.days === 1 ? ' giorno' : ' giorni'));
-      if (b.days !== null && b.days <= 14) act = 'Rinnova';
-    }
-    let right = '';
-    if (c && c.state === 'ok') {
-      right = `<div class="num">${eur2(c.eur)}</div>` + c.accounts.map(a =>
-        `<div class="bks num">${esc(a.name || 'conto')} ${money(a.amount, a.cur)}</div>`).join('');
-    } else if (c && c.state === 'errore') {
-      right = `<div class="bks neg" style="max-width:190px">${esc(c.error || 'Errore')}</div>`;
-    }
+    let act = '', warn = '';
+    if (!b.connected) act = 'Collega';
+    else if (b.expired) { act = 'Rinnova'; warn = 'consenso scaduto'; }
+    else if (b.days !== null && b.days <= 15) { act = 'Rinnova'; warn = 'scade tra ' + b.days + (b.days === 1 ? ' giorno' : ' giorni'); }
+    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
+      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
     const btn = act ? `<button class="bkact" data-bankconnect="${esc(b.key)}" ${B.busy ? 'disabled' : ''}>${act}</button>` : '';
-    return `<div class="bkrow"><div><div class="bkn">${esc(b.label)}</div><div class="bks">${sub}</div></div>
-      <div class="bkr">${right}${right && btn ? '<div style="height:6px"></div>' : ''}${btn}</div></div>`;
+    return `<div class="bkrow"><div class="bkn">${esc(b.label)}${warn ? `<div class="bks warn">${warn}</div>` : ''}</div><div class="bkr">${val}${btn}</div></div>`;
   }).join('');
-  if (B.calc) {
-    const now = new Date(), sameMonth = S.data && S.data.year === String(now.getFullYear()) && S.month === now.getMonth();
-    h += `<div class="bknote muted">Saldi di oggi (${esc(B.calc.day.split('-').reverse().join('/'))}), già inseriti nei campi di ${MESI[S.month]}. Controllali e premi Salva.${sameMonth ? '' : ' <span class="neg">Attenzione: non è il mese corrente.</span>'}</div>`;
-  } else {
-    h += '<div class="bknote muted">Calcola legge i saldi di oggi e li scrive nei campi qui sotto, senza salvare.</div>';
-  }
   if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
   return h + '</section>';
 }
@@ -864,11 +850,10 @@ async function bankCalc() {
       S.edits[a.row] = fIn.format(c.eur);
       n++;
     });
-    const bad = r.banks.filter(c => c.state !== 'ok');
+    const bad = r.banks.filter(c => c.state === 'errore');
     toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva'
               : 'Nessun saldo compilato');
-    if (bad.length) S.bank.err = bad.map(c => c.label + ': ' + (c.state === 'nonCollegata' ? 'non collegata'
-      : c.state === 'scaduta' ? 'consenso scaduto, tocca Rinnova' : (c.error || 'errore'))).join(' · ');
+    if (bad.length) S.bank.err = bad.map(c => c.label + ': ' + (c.error || 'errore')).join(' · ');
     loadBank();
   } catch (e) {
     S.bank.err = e.message || String(e);
