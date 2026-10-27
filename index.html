@@ -28,12 +28,14 @@
       --pos: #3ccf8e; --neg: #ff6b6b; --chip: #222631; --input: #1e222a;
     }
   }
+  /* --top / --gap: correzione per l'app aperta dalla Home su iPhone (vedi fixViewport) */
+  :root { --top: env(safe-area-inset-top); --gap: 0px; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   /* la pagina non scorre mai da sola: scorre solo #scroller (niente "rimbalzo") */
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--text); }
   #scroller {
-    position: fixed; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none;
-    padding-top: env(safe-area-inset-top);
+    position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none;
+    padding-top: var(--top);
     padding-bottom: calc(150px + env(safe-area-inset-bottom));
   }
   #scroller > .wrap { min-height: calc(100% + 1px); }
@@ -197,7 +199,7 @@
   }
   .delact svg { width: 22px; height: 22px; }
   .undo {
-    position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 7; max-width: 528px; margin: 0 auto;
+    position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom) - var(--gap)); z-index: 7; max-width: 528px; margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: var(--text); color: var(--bg); border-radius: 14px; padding: 10px 10px 10px 16px; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.25);
   }
@@ -208,7 +210,7 @@
   .mv .t2 { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mv .r { text-align: right; flex: 0 0 auto; }
   .fab {
-    position: fixed; right: 18px; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 5;
+    position: fixed; right: 18px; bottom: calc(24px + env(safe-area-inset-bottom) - var(--gap)); z-index: 5;
     width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
     box-shadow: 0 6px 18px rgba(0, 0, 0, .22); display: grid; place-items: center; padding: 0;
   }
@@ -216,11 +218,11 @@
   .fab svg { width: 26px; height: 26px; }
 
   /* ---- modulo spesa ---- */
-  .sheet { position: fixed; inset: 0; z-index: 8; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
+  .sheet { position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); z-index: 8; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
   .sheet[hidden] { display: none; }
   .shead {
     position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-    padding: calc(12px + env(safe-area-inset-top)) 16px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
+    padding: calc(12px + var(--top)) 16px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
   }
   .shead b { font-size: 17px; }
   .shead .homepill { justify-self: start; padding: 9px 16px 9px 12px; font-size: 15px; }
@@ -262,7 +264,7 @@
 
   /* ---- barre fisse ---- */
   .savebar {
-    position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom));
+    position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) - var(--gap));
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 16px; background: var(--card); border-top: 1px solid var(--line);
   }
@@ -272,14 +274,14 @@
   .btn { border: 0; background: var(--accent); color: #fff; font-weight: 650; border-radius: 12px; padding: 11px 20px; }
   .btn:disabled { opacity: .4; }
   .tabs {
-    position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+    position: fixed; left: 0; right: 0; bottom: calc(-1 * var(--gap)); display: flex;
     background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
   }
   .tabs button { flex: 1; border: 0; background: none; padding: 8px 0 9px; font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px; }
   .tabs button.on { color: var(--accent); font-weight: 600; }
   .tabs svg { width: 22px; height: 22px; }
   .toast {
-    position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top)); transform: translate(-50%, -120px); transition: transform .25s;
+    position: fixed; left: 50%; top: calc(14px + var(--top)); transform: translate(-50%, -120px); transition: transform .25s;
     background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 9;
   }
   .toast.show { transform: translate(-50%, 0); }
@@ -313,6 +315,7 @@
   <div class="sheet" id="form" hidden></div>
   <div class="undo" id="undo" hidden><span>Spesa eliminata</span><button id="undobtn">Annulla</button></div>
   <div class="toast" id="toast"></div>
+  <div id="probe" style="position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top)"></div>
 
 <script>
 /* ======================= DA COMPILARE ======================= */
@@ -1237,6 +1240,102 @@ document.addEventListener('keydown', e => {
 
 window.addEventListener('resize', () => { if (S.view === 'home' && S.data) drawChart(); });
 
+/* ---------- indietro come in un'app ---------- */
+// schermata precedente: modulo → lista, Movimenti/categoria → Spese, sezione → Home. Dalla Home non si va da nessuna parte.
+function canBack() {
+  return !!S.form || ['home', 'history', 'input', 'spese'].includes(S.view);
+}
+function goBack() {
+  if (S.form) { closeForm(); return true; }
+  if (S.view === 'spese' && S.spTab === 'mov') {
+    S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+  }
+  if (['home', 'history', 'input', 'spese'].includes(S.view)) {
+    if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return false;
+    if (S.view === 'input') S.edits = {};
+    S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+  }
+  return false;
+}
+
+// "indietro" del browser (swipe in Safari): la pagina tiene sempre una voce di riserva sotto di sé,
+// così indietro non esce mai dall'app (niente ritorno alla pagina di Google) ma torna alla schermata precedente
+function setupHistory(url) {
+  try {
+    history.replaceState({ fin: 'root' }, '', url);
+    history.pushState({ fin: 'app' }, '', url);
+  } catch (e) { /* niente */ }
+}
+window.addEventListener('popstate', e => {
+  if (!e.state || e.state.fin !== 'root') return;
+  try { history.pushState({ fin: 'app' }, '', location.href); } catch (err) { /* niente */ }
+  if (S.view !== 'login') goBack();
+});
+
+// app aperta dall'icona sulla Home: iOS non ha lo swipe indietro, lo facciamo noi dal bordo sinistro
+const STANDALONE = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+let edge = null;
+document.addEventListener('touchstart', e => {
+  if (!STANDALONE || e.touches.length !== 1 || !canBack()) return;
+  const t = e.touches[0];
+  if (t.clientX > 28) return;
+  edge = { x0: t.clientX, y0: t.clientY, dx: 0, on: null, t0: Date.now(), el: S.form ? $('form') : $('scroller') };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!edge) return;
+  const t = e.touches[0], dx = t.clientX - edge.x0, dy = t.clientY - edge.y0;
+  if (edge.on === null && Math.hypot(dx, dy) > 10) edge.on = dx > Math.abs(dy);
+  if (edge.on === false) { edge = null; return; }
+  if (!edge.on) return;
+  edge.dx = Math.max(0, dx);
+  edge.el.style.transition = 'none';
+  edge.el.style.transform = `translateX(${edge.dx}px)`;
+  edge.el.style.boxShadow = '-8px 0 24px rgba(0,0,0,.18)';
+}, { passive: true });
+function edgeEnd() {
+  const g = edge;
+  edge = null;
+  if (!g || !g.on) return;
+  const el = g.el;
+  const reset = () => { el.style.transition = 'none'; el.style.transform = ''; el.style.boxShadow = ''; };
+  if (g.dx > innerWidth * 0.3 || (g.dx > 40 && Date.now() - g.t0 < 250)) {
+    el.style.transition = 'transform .18s ease-out';
+    el.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+      reset();
+      if (goBack() && el.id === 'scroller') {
+        const app = $('app'); app.classList.remove('in-prev'); void app.offsetWidth; app.classList.add('in-prev');
+      }
+    }, 180);
+  } else {
+    el.style.transition = 'transform .2s ease';
+    el.style.transform = '';
+    setTimeout(reset, 200);
+  }
+}
+document.addEventListener('touchend', edgeEnd);
+document.addEventListener('touchcancel', edgeEnd);
+
+/* ---------- app sulla Home di iPhone: altezza dello schermo ---------- */
+// in modalità a tutto schermo iOS a volte toglie in basso l'altezza della zona dell'orologio
+// (rimane una fascia vuota) e non segnala lo spazio occupato in alto: qui lo misuriamo e correggiamo
+function fixViewport() {
+  if (!STANDALONE) return;
+  const el = document.activeElement;
+  if (el && /INPUT|SELECT|TEXTAREA/.test(el.tagName)) return;   // tastiera aperta: misura falsata
+  const portrait = innerHeight >= innerWidth;
+  const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  let gap = Math.round(full - innerHeight);
+  if (gap < 8 || gap > 120) gap = 0;
+  const envTop = parseFloat(getComputedStyle($('probe')).paddingTop) || 0;
+  const root = document.documentElement.style;
+  root.setProperty('--gap', gap + 'px');
+  root.setProperty('--top', (envTop > 0 ? envTop : gap) + 'px');
+}
+fixViewport();
+window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
+window.addEventListener('pageshow', fixViewport);
+
 /* ---------- avvio ---------- */
 // ?v=spese / ?v=patrimonio aprono direttamente la sezione;
 // ?a=importo&m=esercente(&c=valuta) arriva da Comandi Rapidi dopo un pagamento
@@ -1245,8 +1344,6 @@ function applyParams(p) {
   if (a || m) {
     S.prefill = { a: a || '', m: m || '', c: p.get('c') || '' };
     S.view = 'spese';
-    // tolgo i parametri dal link, così ricaricando la pagina il modulo non si riapre
-    history.replaceState(null, '', REDIRECT + '?v=spese');
   } else {
     S.view = v === 'spese' ? 'spese' : v === 'patrimonio' ? 'home' : 'start';
   }
@@ -1255,19 +1352,27 @@ function applyParams(p) {
 
 async function start() {
   S.spMonth = curMonthKey();
-  let search = location.search;
+  if (!CONFIG.API_URL || /INCOLLA/.test(CONFIG.API_URL + CONFIG.CLIENT_ID)) {
+    $('app').innerHTML = '<div class="state err">In index.html mancano il link /exec e l\'ID client (blocco CONFIG).</div>';
+    return;
+  }
+  let search = location.search, nonce = '';
   const h = new URLSearchParams(location.hash.slice(1));
-
-  // ritorno dalla pagina di accesso di Google
-  if (h.get('id_token') || h.get('error')) {
-    let nonce = '';
+  const fromGoogle = !!(h.get('id_token') || h.get('error'));
+  if (fromGoogle) {
     try {
       nonce = sessionStorage.getItem('finanze_nonce') || '';
       search = sessionStorage.getItem('finanze_ret') || '';
       sessionStorage.removeItem('finanze_nonce'); sessionStorage.removeItem('finanze_ret');
     } catch (e) { search = ''; }
-    history.replaceState(null, '', REDIRECT + search);
-    S.ret = search;
+  }
+  S.ret = search;
+  const sp = new URLSearchParams(search);
+  // link pulito (senza token né dati della spesa) e "indietro" bloccato sulla Home
+  setupHistory(REDIRECT + ((sp.get('a') || sp.get('m')) ? '?v=spese' : search));
+
+  // ritorno dalla pagina di accesso di Google
+  if (fromGoogle) {
     if (h.get('error')) { showLogin('Accesso annullato.'); return; }
     const tok = h.get('id_token');
     if (!nonce || jwtPayload(tok).nonce !== nonce) { showLogin('Accesso non valido, riprova.'); return; }
@@ -1280,9 +1385,8 @@ async function start() {
     }
   }
 
-  S.ret = search;
   if (!getSess()) { showLogin(''); return; }
-  applyParams(new URLSearchParams(search));
+  applyParams(sp);
   load();
   loadSpese();
 }
