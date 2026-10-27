@@ -34,6 +34,12 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   /* la pagina non scorre mai da sola: scorre solo #scroller (niente "rimbalzo") */
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--text); }
+  /* iOS 26, app aperta dalla Home con barra di stato trasparente: iOS dà alla pagina un'altezza più corta dello
+     schermo (quanto la barra di stato), e la barra in basso resta ferma lì sopra una fascia vuota.
+     Se la pagina è alta almeno quanto lo schermo, iOS le dà l'altezza intera (WebKit bug 301108). */
+  @media (display-mode: standalone) {
+    html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top))); }
+  }
   #scroller {
     position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none;
     padding-top: var(--top);
@@ -536,9 +542,6 @@ const subbar = title => `<div class="trow"><button class="homepill back" data-sp
 
 function render() {
   openRow = null;
-  // il pulsante appena toccato sparisce con il ridisegno: togliamo il focus, così iOS non sposta la pagina
-  if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
-  requestAnimationFrame(() => { if (typeof pinTop === 'function') pinTop(); });
   document.body.classList.toggle('hide', S.hidden);
   document.body.classList.toggle('vspese', S.view === 'spese');
   document.body.classList.toggle('vstart', S.view === 'start' || S.view === 'login');
@@ -817,9 +820,11 @@ async function loadBank() {
   if (S.view === 'input') render();
 }
 
+const MARKET_ROWS = [{ key: 'etf', label: 'ETF' }, { key: 'btc', label: 'Bitcoin' }];
+
 function bankCard() {
   const B = S.bank, st = B.st;
-  let h = `<section class="card"><div class="cardhead"><span>Saldi dalle banche</span>
+  let h = `<section class="card"><div class="cardhead"><span>Saldi automatici</span>
     <button class="btn bkbtn" data-bankcalc ${B.busy || !st ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : 'Calcola'}</button></div>`;
   if (!st) {
     return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico…'}</div></section>`;
@@ -835,6 +840,12 @@ function bankCard() {
     const btn = act ? `<button class="bkact" data-bankconnect="${esc(b.key)}" ${B.busy ? 'disabled' : ''}>${act}</button>` : '';
     return `<div class="bkrow"><div class="bkn">${esc(b.label)}${warn ? `<div class="bks warn">${warn}</div>` : ''}</div><div class="bkr">${val}${btn}</div></div>`;
   }).join('');
+  h += MARKET_ROWS.map(m => {
+    const c = B.calc && B.calc.banks.find(x => x.key === m.key);
+    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
+      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
+    return `<div class="bkrow"><div class="bkn">${m.label}</div><div class="bkr">${val}</div></div>`;
+  }).join('');
   if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
   return h + '</section>';
 }
@@ -842,25 +853,27 @@ function bankCard() {
 async function bankCalc() {
   if (S.bank.busy) return;
   S.bank.busy = true; S.bank.err = ''; render();
-  try {
-    const r = await call('bankCalcola');
-    S.bank.calc = r;
-    let n = 0;
-    r.banks.forEach(c => {
-      if (c.state !== 'ok') return;
-      const a = accounts().find(x => x.name.trim().toLowerCase() === c.sheet.trim().toLowerCase());
-      if (!a || a.locked[S.month]) return;
-      S.edits[a.row] = fIn.format(c.eur);
-      n++;
-    });
-    const bad = r.banks.filter(c => c.state === 'errore');
-    toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva'
-              : 'Nessun saldo compilato');
-    if (bad.length) S.bank.err = bad.map(c => c.label + ': ' + (c.error || 'errore')).join(' · ');
-    loadBank();
-  } catch (e) {
-    S.bank.err = e.message || String(e);
-  }
+  const errs = [];
+  const res = await Promise.allSettled([call('bankCalcola'), call('mercatoCalcola', S.data.year)]);
+  const items = [];
+  let day = '';
+  if (res[0].status === 'fulfilled') { items.push(...res[0].value.banks); day = res[0].value.day; }
+  else errs.push('Banche: ' + ((res[0].reason && res[0].reason.message) || 'errore'));
+  if (res[1].status === 'fulfilled') { items.push(...res[1].value.items); day = day || res[1].value.day; }
+  else errs.push('ETF/Bitcoin: ' + ((res[1].reason && res[1].reason.message) || 'errore'));
+  S.bank.calc = { day, banks: items };
+  let n = 0;
+  items.forEach(c => {
+    if (c.state !== 'ok') return;
+    const a = accounts().find(x => x.name.trim().toLowerCase() === c.sheet.trim().toLowerCase());
+    if (!a || a.locked[S.month]) return;
+    S.edits[a.row] = fIn.format(c.eur);
+    n++;
+  });
+  items.filter(c => c.state === 'errore').forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
+  S.bank.err = errs.join(' · ');
+  toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva' : 'Nessun saldo compilato');
+  loadBank();
   S.bank.busy = false;
   if (S.view === 'input') render();
 }
@@ -1461,31 +1474,6 @@ function fixViewport() {
 fixViewport();
 window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
 window.addEventListener('pageshow', fixViewport);
-
-// iOS a volte (all'avvio, mentre i dati arrivano e la pagina viene ridisegnata) lascia la finestra
-// spostata in alto: il contenuto finisce sotto l'ora e in fondo resta una fascia vuota.
-// La pagina non deve mai scorrere (scorre solo #scroller), quindi la riportiamo sempre in posizione.
-const typing = () => { const el = document.activeElement; return !!(el && /INPUT|SELECT|TEXTAREA/.test(el.tagName)); };
-function pinTop() {
-  if (typing()) return;   // tastiera aperta: lo spostamento è voluto
-  const vv = window.visualViewport;
-  if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || (vv && vv.offsetTop > 0.5)) {
-    window.scrollTo(0, 0);
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  }
-}
-function settle() { fixViewport(); pinTop(); }
-window.addEventListener('scroll', pinTop, { passive: true });
-window.addEventListener('resize', settle);
-window.addEventListener('pageshow', settle);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { settle(); setTimeout(settle, 300); } });
-document.addEventListener('focusout', () => setTimeout(settle, 60));
-if (window.visualViewport) {
-  visualViewport.addEventListener('resize', settle);
-  visualViewport.addEventListener('scroll', pinTop);
-}
-[0, 150, 500, 1200, 2500].forEach(ms => setTimeout(settle, ms));
 
 /* ---------- avvio ---------- */
 // ?v=spese / ?v=patrimonio aprono direttamente la sezione;
