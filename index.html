@@ -346,7 +346,7 @@
   <div class="sheet" id="form" hidden></div>
   <div class="undo" id="undo" hidden><span>Spesa eliminata</span><button id="undobtn">Annulla</button></div>
   <div class="toast" id="toast"></div>
-  <div id="probe" style="position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top)"></div>
+  <div id="probe" style="position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)"></div>
 
 <script>
 /* ======================= DA COMPILARE ======================= */
@@ -1380,6 +1380,16 @@ document.addEventListener('touchcancel', edgeEnd);
 /* ---------- app sulla Home di iPhone: spazio della barra di stato ---------- */
 // in modalità a tutto schermo iOS a volte non segnala lo spazio occupato in alto (ora, batteria):
 // qui lo misuriamo. Niente correzione in basso: oltre il bordo dello schermo iOS taglia tutto.
+// altezza della zona di ora e batteria per modello di iPhone (in punti), usata quando iOS dice 0
+function statusBarGuess() {
+  const h = Math.max(screen.width, screen.height);
+  if (h === 874 || h === 956) return 62;          // 16 Pro / 16 Pro Max e successivi
+  if (h === 852 || h === 932) return 59;          // 14 Pro, 15, 16 e Plus / Pro Max
+  if (h === 844 || h === 926) return 47;          // 12, 13, 14 e Plus / Pro Max
+  if (h === 812 || h === 896) return 44;          // X, XS, 11, mini
+  return h > 800 ? 50 : 20;                       // altri / SE
+}
+
 function fixViewport() {
   if (!STANDALONE) return;
   const el = document.activeElement;
@@ -1388,17 +1398,27 @@ function fixViewport() {
   const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
   let gap = Math.round(full - innerHeight);
   if (gap < 8 || gap > 120) gap = 0;
-  const envTop = parseFloat(getComputedStyle($('probe')).paddingTop) || 0;
+  const pcs = getComputedStyle($('probe'));
+  const envTop = parseFloat(pcs.paddingTop) || 0, envBot = parseFloat(pcs.paddingBottom) || 0;
   const root = document.documentElement.style;
   root.setProperty('--gap', '0px');
-  root.setProperty('--top', (envTop > 0 ? envTop : gap) + 'px');
-  // se iOS lascia una fascia fuori dall'app in fondo, lo spazio per la barretta della Home c'è già
-  if (gap > 0) root.setProperty('--sb', '0px'); else root.removeProperty('--sb');
+  // spazio in alto: quello dichiarato da iOS; se dice 0 (difetto di iOS 26) la fascia in fondo o la stima per modello
+  const top = envTop > 0 ? envTop : gap > 0 ? gap : portrait ? statusBarGuess() : 0;
+  root.setProperty('--top', top + 'px');
+  // spazio in basso per la barretta della Home: già coperto se iOS lascia la fascia; se iOS dice 0 lo stimiamo
+  if (gap > 0) root.setProperty('--sb', '0px');
+  else if (envBot > 0) root.removeProperty('--sb');
+  else root.setProperty('--sb', (portrait && full > 800 ? 34 : 0) + 'px');
   document.documentElement.classList.toggle('iosgap', gap > 0);
 }
 fixViewport();
+// iOS a volte corregge le misure dopo l'apertura: ricontrollo poco dopo, al ritorno nell'app e se cambia la dimensione
+setTimeout(fixViewport, 300);
+setTimeout(fixViewport, 1200);
 window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
 window.addEventListener('pageshow', fixViewport);
+window.addEventListener('resize', () => setTimeout(fixViewport, 100));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(fixViewport, 200); });
 
 /* ---------- avvio ---------- */
 // ?v=spese / ?v=patrimonio aprono direttamente la sezione;
