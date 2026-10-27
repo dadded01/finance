@@ -28,7 +28,8 @@
       --pos: #3ccf8e; --neg: #ff6b6b; --chip: #222631; --input: #1e222a;
     }
   }
-  /* --top / --gap: correzione per l'app aperta dalla Home su iPhone (vedi fixViewport) */
+  /* --top: spazio della barra di stato per l'app aperta dalla Home su iPhone (vedi fixViewport).
+     --gap resta a 0: allungare le barre sotto il bordo dello schermo le faceva tagliare da iOS */
   :root { --top: env(safe-area-inset-top); --gap: 0px; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   /* la pagina non scorre mai da sola: scorre solo #scroller (niente "rimbalzo") */
@@ -39,6 +40,11 @@
     padding-bottom: calc(150px + env(safe-area-inset-bottom));
   }
   #scroller > .wrap { min-height: calc(100% + 1px); }
+  /* nelle pagine senza barra in basso basta meno spazio vuoto in fondo */
+  body.vspese #scroller { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+  body.vstart #scroller { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  /* fascia piena dietro ora e batteria: il contenuto che scorre lì sotto non si vede (niente effetto sfocato) */
+  #topcover { position: fixed; top: 0; left: 0; right: 0; height: var(--top); background: var(--bg); z-index: 10; pointer-events: none; }
   .tabs, .savebar { touch-action: none; }
   body {
     font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -220,6 +226,7 @@
   /* ---- modulo spesa ---- */
   .sheet { position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); z-index: 8; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
   .sheet[hidden] { display: none; }
+  .sheet > .wrap { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
   .shead {
     position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
     padding: calc(12px + var(--top)) 16px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
@@ -227,6 +234,9 @@
   .shead b { font-size: 17px; }
   .shead .homepill { justify-self: start; padding: 9px 16px 9px 12px; font-size: 15px; }
   .shead .homepill svg { width: 17px; height: 17px; }
+  /* Salva sempre a portata in alto a destra, senza dover scorrere il modulo */
+  .shead .savepill { justify-self: end; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--accent); color: #fff; font-weight: 650; font-size: 15px; }
+  .shead .savepill:disabled { opacity: .4; }
   .amtbox { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
   .amtbox input {
     width: 100%; border: 0; background: none; padding: 0; outline: none;
@@ -282,15 +292,16 @@
   .tabs svg { width: 22px; height: 22px; }
   .toast {
     position: fixed; left: 50%; top: calc(14px + var(--top)); transform: translate(-50%, -120px); transition: transform .25s;
-    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 9;
+    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 11;
   }
   .toast.show { transform: translate(-50%, 0); }
   .state { text-align: center; color: var(--muted); padding: 60px 20px; }
   .state.err { color: var(--neg); }
 </style>
 </head>
-<body>
+<body class="vstart">
   <main id="scroller"><div class="wrap" id="app"><div class="state">Carico…</div></div></main>
+  <div id="topcover"></div>
   <div id="savebar" class="savebar" hidden>
     <div><div class="sb1 num" id="sbtot"></div><div class="sb2" id="sbinfo"></div></div>
     <button class="btn" id="save" disabled>Salva</button>
@@ -514,6 +525,8 @@ const subbar = title => `<div class="trow"><button class="homepill back" data-sp
 function render() {
   openRow = null;
   document.body.classList.toggle('hide', S.hidden);
+  document.body.classList.toggle('vspese', S.view === 'spese');
+  document.body.classList.toggle('vstart', S.view === 'start' || S.view === 'login');
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
   $('tabs').hidden = !isNet();
   $('savebar').hidden = S.view !== 'input';
@@ -995,7 +1008,7 @@ function renderForm() {
   const f = S.form, cats = S.sp.cats.slice();
   if (f.cat && !cats.some(c => c.name === f.cat)) cats.push({ name: f.cat, icon: '•' });
   $('form').innerHTML = `
-    <div class="shead"><button class="homepill" data-fclose><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Annulla</button><b>${f.id ? 'Modifica spesa' : 'Nuova spesa'}</b><span></span></div>
+    <div class="shead"><button class="homepill" data-fclose><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Annulla</button><b>${f.id ? 'Modifica' : 'Nuova spesa'}</b><button class="savepill" id="fsave2">Salva</button></div>
     <div class="wrap">
       <div class="amtbox">
         <input id="famt" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.a)}">
@@ -1032,8 +1045,10 @@ function formLive() {
   const f = S.form, a = parseNum(f.a), r = rateGuess(f.c);
   $('feur').textContent = f.c !== 'EUR' && a > 0 && r ? '≈ ' + fEur2.format(a / r) : '';
   $('famt').style.color = isNaN(a) ? 'var(--neg)' : '';
-  $('fsave').disabled = S.fSaving || !formValid();
-  $('fsave').textContent = S.fSaving ? 'Salvo…' : 'Salva';
+  ['fsave', 'fsave2'].forEach(id => {
+    $(id).disabled = S.fSaving || !formValid();
+    $(id).textContent = S.fSaving ? 'Salvo…' : 'Salva';
+  });
   document.querySelectorAll('[data-fcur]').forEach(b => b.classList.toggle('on', b.dataset.fcur === f.c));
   document.querySelectorAll('[data-fcat]').forEach(b => b.classList.toggle('on', b.dataset.fcat === f.cat));
 }
@@ -1200,7 +1215,7 @@ document.addEventListener('click', e => {
     S.form.cat = t.dataset.fcat; S.form.hint = ''; const fh = document.querySelector('.fhint'); if (fh) fh.remove(); formLive();
   } else if (t.dataset.fclose !== undefined) {
     closeForm();
-  } else if (t.id === 'fsave') {
+  } else if (t.id === 'fsave' || t.id === 'fsave2') {
     saveForm();
   } else if (t.id === 'fdel') {
     deleteForm();
@@ -1316,9 +1331,9 @@ function edgeEnd() {
 document.addEventListener('touchend', edgeEnd);
 document.addEventListener('touchcancel', edgeEnd);
 
-/* ---------- app sulla Home di iPhone: altezza dello schermo ---------- */
-// in modalità a tutto schermo iOS a volte toglie in basso l'altezza della zona dell'orologio
-// (rimane una fascia vuota) e non segnala lo spazio occupato in alto: qui lo misuriamo e correggiamo
+/* ---------- app sulla Home di iPhone: spazio della barra di stato ---------- */
+// in modalità a tutto schermo iOS a volte non segnala lo spazio occupato in alto (ora, batteria):
+// qui lo misuriamo. Niente correzione in basso: oltre il bordo dello schermo iOS taglia tutto.
 function fixViewport() {
   if (!STANDALONE) return;
   const el = document.activeElement;
@@ -1329,7 +1344,7 @@ function fixViewport() {
   if (gap < 8 || gap > 120) gap = 0;
   const envTop = parseFloat(getComputedStyle($('probe')).paddingTop) || 0;
   const root = document.documentElement.style;
-  root.setProperty('--gap', gap + 'px');
+  root.setProperty('--gap', '0px');
   root.setProperty('--top', (envTop > 0 ? envTop : gap) + 'px');
 }
 fixViewport();
