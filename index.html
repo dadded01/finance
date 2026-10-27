@@ -48,6 +48,8 @@
   body.vspese #scroller { padding-bottom: calc(88px + var(--sb)); }
   body.vstart #scroller { padding-bottom: calc(24px + var(--sb)); }
   /* fascia piena dietro ora e batteria: il contenuto che scorre lì sotto non si vede (niente effetto sfocato) */
+  #bottomfade { display: none; position: fixed; left: 0; right: 0; bottom: 0; height: 28px; z-index: 3; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg)); }
+  html.iosgap body:not(.vnet) #bottomfade { display: block; }
   #topcover { position: fixed; top: 0; left: 0; right: 0; height: var(--top); background: var(--bg); z-index: 10; pointer-events: none; }
   .tabs, .savebar { touch-action: none; }
   body {
@@ -318,6 +320,7 @@
 <body class="vstart">
   <main id="scroller"><div class="wrap" id="app"><div class="state">Carico…</div></div></main>
   <div id="topcover"></div>
+  <div id="bottomfade"></div>
   <button class="floatpill" id="floatpill" aria-label="Indietro"></button>
   <div id="savebar" class="savebar" hidden>
     <div><div class="sb1 num" id="sbtot"></div><div class="sb2" id="sbinfo"></div></div>
@@ -546,6 +549,7 @@ function render() {
   document.body.classList.toggle('vspese', S.view === 'spese');
   document.body.classList.toggle('vinput', S.view === 'input');
   document.documentElement.classList.toggle('net', isNet());
+  document.body.classList.toggle('vnet', isNet());
   document.body.classList.toggle('vstart', S.view === 'start' || S.view === 'login');
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
   $('tabs').hidden = !isNet();
@@ -1195,11 +1199,11 @@ document.addEventListener('click', e => {
   } else if (t.dataset.go) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
     if (S.view === 'input') S.edits = {};
-    S.view = t.dataset.go; S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0;
+    S.view = t.dataset.go; S.spTab = 'main'; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.view) {
     if (S.view === 'input' && t.dataset.view !== 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
     if (S.view === 'input' && t.dataset.view !== 'input') S.edits = {};
-    S.view = t.dataset.view; render(); $('scroller').scrollTop = 0;
+    S.view = t.dataset.view; render(); resetScroll();
   } else if (t.dataset.range !== undefined) {
     S.range = Number(t.dataset.range); render();
   } else if (t.dataset.hm !== undefined) {
@@ -1217,9 +1221,9 @@ document.addEventListener('click', e => {
     save();
   /* spese */
   } else if (t.dataset.sptab) {
-    S.spTab = t.dataset.sptab; S.spCat = null; render(); $('scroller').scrollTop = 0;
+    S.spTab = t.dataset.sptab; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.spcat) {
-    S.spTab = 'mov'; S.spCat = t.dataset.spcat; render(); $('scroller').scrollTop = 0;
+    S.spTab = 'mov'; S.spCat = t.dataset.spcat; render(); resetScroll();
   } else if (t.dataset.spm) {
     S.spDir = Number(t.dataset.spm); S.spMonth = keyAdd(S.spMonth, S.spDir); render();
   } else if (t.dataset.spk) {
@@ -1276,6 +1280,14 @@ document.addEventListener('keydown', e => {
 });
 
 window.addEventListener('resize', () => { if (S.view === 'home' && S.data) drawChart(); });
+// cambio pagina: torna in cima fermando lo scorrimento ancora in corso (su iPhone continuerebbe nella pagina nuova)
+function resetScroll() {
+  const el = $('scroller');
+  el.style.overflowY = 'hidden';
+  el.scrollTop = 0;
+  requestAnimationFrame(() => { el.style.overflowY = ''; el.scrollTop = 0; updateFloat(); });
+}
+
 // quando il pulsante Home / ‹ Spese esce dallo schermo, ne compare una copia che galleggia in alto
 function updateFloat() {
   const fp = $('floatpill'), pill = $('app').querySelector('.trow .homepill');
@@ -1297,12 +1309,12 @@ function canBack() {
 function goBack() {
   if (S.form) { closeForm(); return true; }
   if (S.view === 'spese' && S.spTab === 'mov') {
-    S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+    S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   if (['home', 'history', 'input', 'spese'].includes(S.view)) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return false;
     if (S.view === 'input') S.edits = {};
-    S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+    S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   return false;
 }
@@ -1382,6 +1394,7 @@ function fixViewport() {
   root.setProperty('--top', (envTop > 0 ? envTop : gap) + 'px');
   // se iOS lascia una fascia fuori dall'app in fondo, lo spazio per la barretta della Home c'è già
   if (gap > 0) root.setProperty('--sb', '0px'); else root.removeProperty('--sb');
+  document.documentElement.classList.toggle('iosgap', gap > 0);
 }
 fixViewport();
 window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
