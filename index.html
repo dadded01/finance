@@ -110,6 +110,16 @@
   .accd { font-size: 12px; min-height: 16px; margin-top: 2px; }
   .lockv { padding: 8px 2px; font-variant-numeric: tabular-nums; }
 
+  /* ---- saldi dalle banche ---- */
+  .bkbtn { padding: 8px 16px; font-size: 14px; }
+  .bkrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .bkn { font-weight: 550; }
+  .bks { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .bkr { text-align: right; flex: 0 0 auto; }
+  .bkact { border: 0; border-radius: 999px; padding: 7px 14px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; }
+  .bkact:disabled { opacity: .4; }
+  .bknote { font-size: 13px; padding: 6px 0 2px; }
+
   /* ---- storico ---- */
   .hhead { margin: 4px 4px 16px; }
   .hhead .lbl { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
@@ -346,7 +356,8 @@ const NOMI = { 'LIQUIDITY': 'Liquidità', 'STOCKS': 'Azioni', 'INV SICURI': 'Inv
 
 const S = { data: null, dataErr: null, view: 'start', hidden: true, month: 0, hMonth: 0, edits: {}, range: 12, saving: false,
             sp: null, spErr: null, spLoading: false, spMonth: '', spTab: 'main', spCat: null, lastCur: 'DKK', form: null, fSaving: false,
-            loginMsg: '', ret: '' };
+            loginMsg: '', ret: '',
+            bank: { st: null, calc: null, busy: false, loading: false, err: '' }, bankCb: null };
 const $ = id => document.getElementById(id);
 
 /* ---------- formattazione ---------- */
@@ -550,7 +561,7 @@ function render() {
   $('app').innerHTML = topbar('Patrimonio') + (S.view === 'home' ? renderHome() : S.view === 'history' ? renderHistory() : renderInput());
   if (S.view === 'home') drawChart();
   else if (S.view === 'history') centerChip();
-  else { live(); centerChip(); }
+  else { live(); centerChip(); if (!S.bank.st && !S.bank.loading) loadBank(); }
 }
 
 function renderHome() {
@@ -699,7 +710,7 @@ function renderInput() {
     <div class="chips" id="chips">${MESI_B.map((n, i) =>
       `<button class="chip ${i === m ? 'on' : ''} ${monthHasData(i) ? 'done' : ''}" data-m="${i}">${n}</button>`).join('')}</div>
   </div>
-  <div class="monthhead"><h2>${MESI[m]} ${d.year}</h2><div class="sub num" id="mtot"></div></div>`;
+  <div class="monthhead"><h2>${MESI[m]} ${d.year}</h2><div class="sub num" id="mtot"></div></div>` + bankCard();
 
   d.blocks.forEach((b, bi) => {
     h += `<section class="card"><div class="cardhead"><span>${esc(nome(b.name))}</span><span class="btot num" id="bt${bi}"></span></div>`;
@@ -786,6 +797,116 @@ async function save() {
     S.saving = false; if (S.view === 'input') live();
     toast('Errore: ' + (e.message || e));
   }
+}
+
+/* ---------- saldi dalle banche (Enable Banking) ---------- */
+async function loadBank() {
+  if (S.bank.loading) return;
+  S.bank.loading = true;
+  try {
+    S.bank.st = await call('bankStatus');
+    S.bank.err = '';
+  } catch (e) {
+    S.bank.err = e.message || String(e);
+  }
+  S.bank.loading = false;
+  if (S.view === 'input') render();
+}
+
+function bankCard() {
+  const B = S.bank, st = B.st;
+  let h = `<section class="card"><div class="cardhead"><span>Saldi dalle banche</span>
+    <button class="btn bkbtn" data-bankcalc ${B.busy || !st ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : 'Calcola'}</button></div>`;
+  if (!st) {
+    return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico lo stato dei collegamenti…'}</div></section>`;
+  }
+  h += st.map(b => {
+    const c = B.calc && B.calc.banks.find(x => x.key === b.key);
+    let sub, act = '';
+    if (!b.connected) { sub = 'non collegata'; act = 'Collega'; }
+    else if (b.expired) { sub = 'consenso scaduto'; act = 'Rinnova'; }
+    else {
+      sub = 'collegata' + (b.days === null ? '' : ' · scade tra ' + b.days + (b.days === 1 ? ' giorno' : ' giorni'));
+      if (b.days !== null && b.days <= 14) act = 'Rinnova';
+    }
+    let right = '';
+    if (c && c.state === 'ok') {
+      right = `<div class="num">${eur2(c.eur)}</div>` + c.accounts.map(a =>
+        `<div class="bks num">${esc(a.name || 'conto')} ${money(a.amount, a.cur)}</div>`).join('');
+    } else if (c && c.state === 'errore') {
+      right = `<div class="bks neg" style="max-width:190px">${esc(c.error || 'Errore')}</div>`;
+    }
+    const btn = act ? `<button class="bkact" data-bankconnect="${esc(b.key)}" ${B.busy ? 'disabled' : ''}>${act}</button>` : '';
+    return `<div class="bkrow"><div><div class="bkn">${esc(b.label)}</div><div class="bks">${sub}</div></div>
+      <div class="bkr">${right}${right && btn ? '<div style="height:6px"></div>' : ''}${btn}</div></div>`;
+  }).join('');
+  if (B.calc) {
+    const now = new Date(), sameMonth = S.data && S.data.year === String(now.getFullYear()) && S.month === now.getMonth();
+    h += `<div class="bknote muted">Saldi di oggi (${esc(B.calc.day.split('-').reverse().join('/'))}), già inseriti nei campi di ${MESI[S.month]}. Controllali e premi Salva.${sameMonth ? '' : ' <span class="neg">Attenzione: non è il mese corrente.</span>'}</div>`;
+  } else {
+    h += '<div class="bknote muted">Calcola legge i saldi di oggi e li scrive nei campi qui sotto, senza salvare.</div>';
+  }
+  if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
+  return h + '</section>';
+}
+
+async function bankCalc() {
+  if (S.bank.busy) return;
+  S.bank.busy = true; S.bank.err = ''; render();
+  try {
+    const r = await call('bankCalcola');
+    S.bank.calc = r;
+    let n = 0;
+    r.banks.forEach(c => {
+      if (c.state !== 'ok') return;
+      const a = accounts().find(x => x.name.trim().toLowerCase() === c.sheet.trim().toLowerCase());
+      if (!a || a.locked[S.month]) return;
+      S.edits[a.row] = fIn.format(c.eur);
+      n++;
+    });
+    const bad = r.banks.filter(c => c.state !== 'ok');
+    toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva'
+              : 'Nessun saldo compilato');
+    if (bad.length) S.bank.err = bad.map(c => c.label + ': ' + (c.state === 'nonCollegata' ? 'non collegata'
+      : c.state === 'scaduta' ? 'consenso scaduto, tocca Rinnova' : (c.error || 'errore'))).join(' · ');
+    loadBank();
+  } catch (e) {
+    S.bank.err = e.message || String(e);
+  }
+  S.bank.busy = false;
+  if (S.view === 'input') render();
+}
+
+async function bankConnect(key) {
+  if (S.bank.busy) return;
+  if (hasUserEdits() && !confirm('Hai modifiche non salvate: andando alla banca andranno perse. Continuare?')) return;
+  S.bank.busy = true; S.bank.err = ''; render();
+  try {
+    const r = await call('bankStart', key);
+    location.href = r.url;
+  } catch (e) {
+    S.bank.busy = false; S.bank.err = e.message || String(e);
+    render();
+  }
+}
+
+// la banca ci ha rimandato qui con code e state: li passiamo allo script per chiudere il collegamento
+async function completeBank() {
+  const cb = S.bankCb;
+  S.bankCb = null;
+  if (!cb) return;
+  S.ret = '';
+  if (cb.error) { S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
+  S.bank.busy = true;
+  try {
+    S.bank.st = await call('bankComplete', cb.code, cb.state);
+    S.bank.err = '';
+    toast('Banca collegata');
+  } catch (e) {
+    S.bank.err = e.message || String(e);
+  }
+  S.bank.busy = false;
+  if (S.view === 'input') render();
 }
 
 /* ---------- pagina iniziale ---------- */
@@ -1166,6 +1287,8 @@ document.addEventListener('click', e => {
   const t = e.target.closest('button');
   if (!t) return;
   if (t.id === 'glogin') { googleLogin(); return; }
+  if (t.dataset.bankcalc !== undefined) { bankCalc(); return; }
+  if (t.dataset.bankconnect) { bankConnect(t.dataset.bankconnect); return; }
   if (t.dataset.del) { swipeDelete(t.dataset.del); return; }
   if (t.id === 'undobtn') { undoDelete(); return; }
   if (t.dataset.eye !== undefined) {
@@ -1356,7 +1479,13 @@ window.addEventListener('pageshow', fixViewport);
 // ?a=importo&m=esercente(&c=valuta) arriva da Comandi Rapidi dopo un pagamento
 function applyParams(p) {
   const v = p.get('v'), a = p.get('a'), m = p.get('m');
-  if (a || m) {
+  if (p.get('code') && p.get('state')) {
+    S.bankCb = { code: p.get('code'), state: p.get('state') };
+    S.view = 'input';
+  } else if (p.get('state') && p.get('error')) {
+    S.bankCb = { error: true };
+    S.view = 'input';
+  } else if (a || m) {
     S.prefill = { a: a || '', m: m || '', c: p.get('c') || '' };
     S.view = 'spese';
   } else {
@@ -1384,7 +1513,8 @@ async function start() {
   S.ret = search;
   const sp = new URLSearchParams(search);
   // link pulito (senza token né dati della spesa) e "indietro" bloccato sulla Home
-  setupHistory(REDIRECT + ((sp.get('a') || sp.get('m')) ? '?v=spese' : search));
+  const bankBack = (sp.get('code') && sp.get('state')) || (sp.get('state') && sp.get('error'));
+  setupHistory(REDIRECT + (bankBack ? '' : (sp.get('a') || sp.get('m')) ? '?v=spese' : search));
 
   // ritorno dalla pagina di accesso di Google
   if (fromGoogle) {
@@ -1404,6 +1534,7 @@ async function start() {
   applyParams(sp);
   load();
   loadSpese();
+  completeBank();
 }
 
 start();
