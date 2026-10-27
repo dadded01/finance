@@ -536,6 +536,9 @@ const subbar = title => `<div class="trow"><button class="homepill back" data-sp
 
 function render() {
   openRow = null;
+  // il pulsante appena toccato sparisce con il ridisegno: togliamo il focus, così iOS non sposta la pagina
+  if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
+  requestAnimationFrame(() => { if (typeof pinTop === 'function') pinTop(); });
   document.body.classList.toggle('hide', S.hidden);
   document.body.classList.toggle('vspese', S.view === 'spese');
   document.body.classList.toggle('vstart', S.view === 'start' || S.view === 'login');
@@ -1458,6 +1461,31 @@ function fixViewport() {
 fixViewport();
 window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
 window.addEventListener('pageshow', fixViewport);
+
+// iOS a volte (all'avvio, mentre i dati arrivano e la pagina viene ridisegnata) lascia la finestra
+// spostata in alto: il contenuto finisce sotto l'ora e in fondo resta una fascia vuota.
+// La pagina non deve mai scorrere (scorre solo #scroller), quindi la riportiamo sempre in posizione.
+const typing = () => { const el = document.activeElement; return !!(el && /INPUT|SELECT|TEXTAREA/.test(el.tagName)); };
+function pinTop() {
+  if (typing()) return;   // tastiera aperta: lo spostamento è voluto
+  const vv = window.visualViewport;
+  if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || (vv && vv.offsetTop > 0.5)) {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+}
+function settle() { fixViewport(); pinTop(); }
+window.addEventListener('scroll', pinTop, { passive: true });
+window.addEventListener('resize', settle);
+window.addEventListener('pageshow', settle);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { settle(); setTimeout(settle, 300); } });
+document.addEventListener('focusout', () => setTimeout(settle, 60));
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', settle);
+  visualViewport.addEventListener('scroll', pinTop);
+}
+[0, 150, 500, 1200, 2500].forEach(ms => setTimeout(settle, ms));
 
 /* ---------- avvio ---------- */
 // ?v=spese / ?v=patrimonio aprono direttamente la sezione;
