@@ -398,27 +398,17 @@ const MASK = '****';
 const eur = n => S.hidden ? MASK + ' €' : n === null || isNaN(n) ? '—' : fEur0.format(n);
 const eur2 = n => S.hidden ? MASK + ' €' : n === null || isNaN(n) ? '—' : fEur2.format(n);
 const fCur = {};
-// valuta sconosciuta (es. scritta a mano nel foglio): numero + sigla invece di bloccare la pagina
-function money(n, c) {
-  if (S.hidden) return MASK + ' ' + c;
-  if (!(c in fCur)) {
-    try { fCur[c] = new Intl.NumberFormat('it-IT', { style: 'currency', currency: c, minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-    catch (e) { fCur[c] = null; }
-  }
-  return fCur[c] ? fCur[c].format(n) : fIn.format(n) + ' ' + c;
-}
+const money = (n, c) => S.hidden ? MASK + ' ' + c : (fCur[c] = fCur[c] || new Intl.NumberFormat('it-IT', { style: 'currency', currency: c, minimumFractionDigits: 2, maximumFractionDigits: 2 })).format(n);
 const signed = (n, f) => S.hidden ? f(0) : (n > 0 ? '+' : n < 0 ? '−' : '') + f(Math.abs(n));
 const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'muted';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nome = s => NOMI[String(s).trim().toUpperCase()] || (s.charAt(0) + s.slice(1).toLowerCase());
 
-// accetta "1832,76", "1.832,76", "1832.76", "1,832.76", "1.832" (migliaia), "€ 1 832"
+// accetta "1832,76", "1.832,76", "1832.76", "1.832" (migliaia), "€ 1 832"
 function parseNum(s) {
   s = String(s).replace(/[\s€]/g, '');
   if (!s) return null;
-  // con punto e virgola insieme, il separatore dei decimali è l'ultimo dei due
-  if (s.indexOf(',') >= 0 && s.indexOf('.') > s.indexOf(',')) s = s.replace(/,/g, '');
-  else if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+  if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
   else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   const n = Number(s);
   return isFinite(n) ? Math.round(n * 100) / 100 : NaN;
@@ -930,11 +920,11 @@ async function completeBank() {
   const cb = S.bankCb;
   S.bankCb = null;
   if (!cb) return;
-  if (cb.error) { S.ret = ''; S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
+  S.ret = '';
+  if (cb.error) { S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
   S.bank.busy = true;
   try {
     S.bank.st = await call('bankComplete', cb.code, cb.state);
-    S.ret = '';   // solo a collegamento riuscito: se serviva rifare il login, il ritorno dalla banca resta valido
     S.bank.err = '';
     toast('Banca collegata');
   } catch (e) {
