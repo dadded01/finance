@@ -28,17 +28,35 @@
       --pos: #3ccf8e; --neg: #ff6b6b; --chip: #222631; --input: #1e222a;
     }
   }
-  /* --top / --gap: correzione per l'app aperta dalla Home su iPhone (vedi fixViewport) */
-  :root { --top: env(safe-area-inset-top); --gap: 0px; }
+  /* --top: spazio della barra di stato per l'app aperta dalla Home su iPhone (vedi fixViewport).
+     --gap resta a 0: allungare le barre sotto il bordo dello schermo le faceva tagliare da iOS */
+  /* --sb: spazio per la barretta della Home in basso; a 0 quando iOS lascia già una fascia fuori dall'app */
+  :root { --top: env(safe-area-inset-top); --gap: 0px; --sb: env(safe-area-inset-bottom); }
+  /* nel Patrimonio la fascia in fondo allo schermo prende il colore della barra delle schede */
+  html.net { background: var(--card); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   /* la pagina non scorre mai da sola: scorre solo #scroller (niente "rimbalzo") */
   html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--text); }
+  /* iOS 26, app aperta dalla Home con barra di stato trasparente: iOS dà alla pagina un'altezza più corta dello
+     schermo (quanto la barra di stato), e la barra in basso resta ferma lì sopra una fascia vuota.
+     Se la pagina è alta almeno quanto lo schermo, iOS le dà l'altezza intera (WebKit bug 301108). */
+  @media (display-mode: standalone) {
+    html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top))); }
+  }
   #scroller {
     position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none;
     padding-top: var(--top);
-    padding-bottom: calc(150px + env(safe-area-inset-bottom));
+    padding-bottom: calc(76px + var(--sb));
   }
   #scroller > .wrap { min-height: calc(100% + 1px); }
+  /* nelle pagine senza barra in basso basta meno spazio vuoto in fondo */
+  body.vinput #scroller { padding-bottom: calc(140px + var(--sb)); }
+  body.vspese #scroller { padding-bottom: calc(88px + var(--sb)); }
+  body.vstart #scroller { padding-bottom: calc(24px + var(--sb)); }
+  /* fascia piena dietro ora e batteria: il contenuto che scorre lì sotto non si vede (niente effetto sfocato) */
+  #bottomfade { display: none; position: fixed; left: 0; right: 0; bottom: 0; height: 28px; z-index: 3; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg)); }
+  html.iosgap body:not(.vnet) #bottomfade { display: block; }
+  #topcover { position: fixed; top: 0; left: 0; right: 0; height: var(--top); background: var(--bg); z-index: 10; pointer-events: none; }
   .tabs, .savebar { touch-action: none; }
   body {
     font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -104,6 +122,17 @@
   .accd { font-size: 12px; min-height: 16px; margin-top: 2px; }
   .lockv { padding: 8px 2px; font-variant-numeric: tabular-nums; }
 
+  /* ---- saldi dalle banche ---- */
+  .bkbtn { padding: 7px 14px; font-size: 14px; }
+  .bkrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); min-height: 40px; }
+  .bkn { font-weight: 550; }
+  .bks { font-size: 12px; font-weight: 500; margin-top: 0; }
+  .bks.warn { color: #d97706; }
+  .bkr { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+  .bkact { border: 0; border-radius: 999px; padding: 6px 13px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13.5px; }
+  .bkact:disabled { opacity: .4; }
+  .bknote { font-size: 12.5px; padding: 6px 0 0; }
+
   /* ---- storico ---- */
   .hhead { margin: 4px 4px 16px; }
   .hhead .lbl { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
@@ -116,6 +145,18 @@
   /* ---- spese ---- */
   /* intestazione: pulsante Home/indietro + occhio, titolo grande, mese in una barra */
   .trow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  /* bolla Home / ‹ Spese che compare in alto quando quella vera esce dallo schermo */
+  :root { --pill-solid: #dae3f5; }
+  @media (prefers-color-scheme: dark) { :root { --pill-solid: #1a243a; } }
+  .floatpill {
+    position: fixed; top: calc(var(--top) + 10px); left: 16px; z-index: 7;
+    display: flex; align-items: center; gap: 7px; border: 0; border-radius: 999px; padding: 10px 17px 10px 13px;
+    background: var(--pill-solid); color: var(--accent); font-weight: 650; font-size: 15.5px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
+    opacity: 0; transform: translateY(-10px) scale(.96); pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+  }
+  .floatpill.show { opacity: 1; transform: none; pointer-events: auto; }
+  .floatpill svg { width: 19px; height: 19px; }
   .homepill {
     display: flex; align-items: center; gap: 7px; border: 0; border-radius: 999px; padding: 10px 17px 10px 13px;
     background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 15.5px;
@@ -199,7 +240,7 @@
   }
   .delact svg { width: 22px; height: 22px; }
   .undo {
-    position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom) - var(--gap)); z-index: 7; max-width: 528px; margin: 0 auto;
+    position: fixed; left: 16px; right: 16px; bottom: calc(96px + var(--sb) - var(--gap)); z-index: 7; max-width: 528px; margin: 0 auto;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: var(--text); color: var(--bg); border-radius: 14px; padding: 10px 10px 10px 16px; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.25);
   }
@@ -210,7 +251,7 @@
   .mv .t2 { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mv .r { text-align: right; flex: 0 0 auto; }
   .fab {
-    position: fixed; right: 18px; bottom: calc(24px + env(safe-area-inset-bottom) - var(--gap)); z-index: 5;
+    position: fixed; right: 18px; bottom: calc(24px + var(--sb) - var(--gap)); z-index: 5;
     width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
     box-shadow: 0 6px 18px rgba(0, 0, 0, .22); display: grid; place-items: center; padding: 0;
   }
@@ -220,6 +261,7 @@
   /* ---- modulo spesa ---- */
   .sheet { position: fixed; inset: 0; bottom: calc(-1 * var(--gap)); z-index: 8; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
   .sheet[hidden] { display: none; }
+  .sheet > .wrap { padding-bottom: calc(32px + var(--sb)); }
   .shead {
     position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
     padding: calc(12px + var(--top)) 16px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
@@ -227,6 +269,9 @@
   .shead b { font-size: 17px; }
   .shead .homepill { justify-self: start; padding: 9px 16px 9px 12px; font-size: 15px; }
   .shead .homepill svg { width: 17px; height: 17px; }
+  /* Salva sempre a portata in alto a destra, senza dover scorrere il modulo */
+  .shead .savepill { justify-self: end; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--accent); color: #fff; font-weight: 650; font-size: 15px; }
+  .shead .savepill:disabled { opacity: .4; }
   .amtbox { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
   .amtbox input {
     width: 100%; border: 0; background: none; padding: 0; outline: none;
@@ -264,7 +309,7 @@
 
   /* ---- barre fisse ---- */
   .savebar {
-    position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) - var(--gap));
+    position: fixed; left: 0; right: 0; bottom: calc(58px + var(--sb) - var(--gap));
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 16px; background: var(--card); border-top: 1px solid var(--line);
   }
@@ -275,22 +320,25 @@
   .btn:disabled { opacity: .4; }
   .tabs {
     position: fixed; left: 0; right: 0; bottom: calc(-1 * var(--gap)); display: flex;
-    background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
+    background: var(--card); border-top: 1px solid var(--line); padding-bottom: var(--sb);
   }
   .tabs button { flex: 1; border: 0; background: none; padding: 8px 0 9px; font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px; }
   .tabs button.on { color: var(--accent); font-weight: 600; }
   .tabs svg { width: 22px; height: 22px; }
   .toast {
     position: fixed; left: 50%; top: calc(14px + var(--top)); transform: translate(-50%, -120px); transition: transform .25s;
-    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 9;
+    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 11;
   }
   .toast.show { transform: translate(-50%, 0); }
   .state { text-align: center; color: var(--muted); padding: 60px 20px; }
   .state.err { color: var(--neg); }
 </style>
 </head>
-<body>
+<body class="vstart">
   <main id="scroller"><div class="wrap" id="app"><div class="state">Carico…</div></div></main>
+  <div id="topcover"></div>
+  <div id="bottomfade"></div>
+  <button class="floatpill" id="floatpill" aria-label="Indietro"></button>
   <div id="savebar" class="savebar" hidden>
     <div><div class="sb1 num" id="sbtot"></div><div class="sb2" id="sbinfo"></div></div>
     <button class="btn" id="save" disabled>Salva</button>
@@ -315,7 +363,7 @@
   <div class="sheet" id="form" hidden></div>
   <div class="undo" id="undo" hidden><span>Spesa eliminata</span><button id="undobtn">Annulla</button></div>
   <div class="toast" id="toast"></div>
-  <div id="probe" style="position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top)"></div>
+  <div id="probe" style="position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)"></div>
 
 <script>
 /* ======================= DA COMPILARE ======================= */
@@ -335,7 +383,8 @@ const NOMI = { 'LIQUIDITY': 'Liquidità', 'STOCKS': 'Azioni', 'INV SICURI': 'Inv
 
 const S = { data: null, dataErr: null, view: 'start', hidden: true, month: 0, hMonth: 0, edits: {}, range: 12, saving: false,
             sp: null, spErr: null, spLoading: false, spMonth: '', spTab: 'main', spCat: null, lastCur: 'DKK', form: null, fSaving: false,
-            loginMsg: '', ret: '' };
+            loginMsg: '', ret: '',
+            bank: { st: null, calc: null, busy: false, loading: false, err: '' }, bankCb: null };
 const $ = id => document.getElementById(id);
 
 /* ---------- formattazione ---------- */
@@ -523,7 +572,13 @@ const subbar = title => `<div class="trow"><button class="homepill back" data-sp
 
 function render() {
   openRow = null;
+  requestAnimationFrame(updateFloat);
   document.body.classList.toggle('hide', S.hidden);
+  document.body.classList.toggle('vspese', S.view === 'spese');
+  document.body.classList.toggle('vinput', S.view === 'input');
+  document.documentElement.classList.toggle('net', isNet());
+  document.body.classList.toggle('vnet', isNet());
+  document.body.classList.toggle('vstart', S.view === 'start' || S.view === 'login');
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
   $('tabs').hidden = !isNet();
   $('savebar').hidden = S.view !== 'input';
@@ -547,7 +602,7 @@ function render() {
   $('app').innerHTML = topbar('Patrimonio') + (S.view === 'home' ? renderHome() : S.view === 'history' ? renderHistory() : renderInput());
   if (S.view === 'home') drawChart();
   else if (S.view === 'history') centerChip();
-  else { live(); centerChip(); }
+  else { live(); centerChip(); if (!S.bank.st && !S.bank.loading) loadBank(); }
 }
 
 function renderHome() {
@@ -696,7 +751,7 @@ function renderInput() {
     <div class="chips" id="chips">${MESI_B.map((n, i) =>
       `<button class="chip ${i === m ? 'on' : ''} ${monthHasData(i) ? 'done' : ''}" data-m="${i}">${n}</button>`).join('')}</div>
   </div>
-  <div class="monthhead"><h2>${MESI[m]} ${d.year}</h2><div class="sub num" id="mtot"></div></div>`;
+  <div class="monthhead"><h2>${MESI[m]} ${d.year}</h2><div class="sub num" id="mtot"></div></div>` + bankCard();
 
   d.blocks.forEach((b, bi) => {
     h += `<section class="card"><div class="cardhead"><span>${esc(nome(b.name))}</span><span class="btot num" id="bt${bi}"></span></div>`;
@@ -783,6 +838,110 @@ async function save() {
     S.saving = false; if (S.view === 'input') live();
     toast('Errore: ' + (e.message || e));
   }
+}
+
+/* ---------- saldi dalle banche (Enable Banking) ---------- */
+async function loadBank() {
+  if (S.bank.loading) return;
+  S.bank.loading = true;
+  try {
+    S.bank.st = await call('bankStatus');
+    S.bank.err = '';
+  } catch (e) {
+    S.bank.err = e.message || String(e);
+  }
+  S.bank.loading = false;
+  if (S.view === 'input') render();
+}
+
+const MARKET_ROWS = [{ key: 'etf', label: 'ETF' }, { key: 'btc', label: 'Bitcoin' }];
+
+function bankCard() {
+  const B = S.bank, st = B.st;
+  let h = `<section class="card"><div class="cardhead"><span>Saldi automatici</span>
+    <button class="btn bkbtn" data-bankcalc ${B.busy || !st ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : 'Calcola'}</button></div>`;
+  if (!st) {
+    return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico…'}</div></section>`;
+  }
+  h += st.map(b => {
+    const c = B.calc && B.calc.banks.find(x => x.key === b.key);
+    let act = '', warn = '';
+    if (!b.connected) act = 'Collega';
+    else if (b.expired) { act = 'Rinnova'; warn = 'consenso scaduto'; }
+    else if (b.days !== null && b.days <= 15) { act = 'Rinnova'; warn = 'scade tra ' + b.days + (b.days === 1 ? ' giorno' : ' giorni'); }
+    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
+      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
+    const btn = act ? `<button class="bkact" data-bankconnect="${esc(b.key)}" ${B.busy ? 'disabled' : ''}>${act}</button>` : '';
+    return `<div class="bkrow"><div class="bkn">${esc(b.label)}${warn ? `<div class="bks warn">${warn}</div>` : ''}</div><div class="bkr">${val}${btn}</div></div>`;
+  }).join('');
+  h += MARKET_ROWS.map(m => {
+    const c = B.calc && B.calc.banks.find(x => x.key === m.key);
+    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
+      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
+    return `<div class="bkrow"><div class="bkn">${m.label}</div><div class="bkr">${val}</div></div>`;
+  }).join('');
+  if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
+  return h + '</section>';
+}
+
+async function bankCalc() {
+  if (S.bank.busy) return;
+  S.bank.busy = true; S.bank.err = ''; render();
+  const errs = [];
+  const res = await Promise.allSettled([call('bankCalcola'), call('mercatoCalcola', S.data.year)]);
+  const items = [];
+  let day = '';
+  if (res[0].status === 'fulfilled') { items.push(...res[0].value.banks); day = res[0].value.day; }
+  else errs.push('Banche: ' + ((res[0].reason && res[0].reason.message) || 'errore'));
+  if (res[1].status === 'fulfilled') { items.push(...res[1].value.items); day = day || res[1].value.day; }
+  else errs.push('ETF/Bitcoin: ' + ((res[1].reason && res[1].reason.message) || 'errore'));
+  S.bank.calc = { day, banks: items };
+  let n = 0;
+  items.forEach(c => {
+    if (c.state !== 'ok') return;
+    const a = accounts().find(x => x.name.trim().toLowerCase() === c.sheet.trim().toLowerCase());
+    if (!a || a.locked[S.month]) return;
+    S.edits[a.row] = fIn.format(c.eur);
+    n++;
+  });
+  items.filter(c => c.state === 'errore').forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
+  S.bank.err = errs.join(' · ');
+  toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva' : 'Nessun saldo compilato');
+  loadBank();
+  S.bank.busy = false;
+  if (S.view === 'input') render();
+}
+
+async function bankConnect(key) {
+  if (S.bank.busy) return;
+  if (hasUserEdits() && !confirm('Hai modifiche non salvate: andando alla banca andranno perse. Continuare?')) return;
+  S.bank.busy = true; S.bank.err = ''; render();
+  try {
+    const r = await call('bankStart', key);
+    location.href = r.url;
+  } catch (e) {
+    S.bank.busy = false; S.bank.err = e.message || String(e);
+    render();
+  }
+}
+
+// la banca ci ha rimandato qui con code e state: li passiamo allo script per chiudere il collegamento
+async function completeBank() {
+  const cb = S.bankCb;
+  S.bankCb = null;
+  if (!cb) return;
+  S.ret = '';
+  if (cb.error) { S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
+  S.bank.busy = true;
+  try {
+    S.bank.st = await call('bankComplete', cb.code, cb.state);
+    S.bank.err = '';
+    toast('Banca collegata');
+  } catch (e) {
+    S.bank.err = e.message || String(e);
+  }
+  S.bank.busy = false;
+  if (S.view === 'input') render();
 }
 
 /* ---------- pagina iniziale ---------- */
@@ -944,6 +1103,7 @@ function openForm(id, noFocus) {
   $('form').hidden = false;
   $('form').scrollTop = 0;
   document.body.classList.add('lock');
+  updateFloat();
   if (!it && !noFocus) $('famt').focus();
 }
 
@@ -999,13 +1159,14 @@ function closeForm() {
   S.form = null;
   $('form').hidden = true;
   document.body.classList.remove('lock');
+  updateFloat();
 }
 
 function renderForm() {
   const f = S.form, cats = S.sp.cats.slice();
   if (f.cat && !cats.some(c => c.name === f.cat)) cats.push({ name: f.cat, icon: '•' });
   $('form').innerHTML = `
-    <div class="shead"><button class="homepill" data-fclose><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Annulla</button><b>${f.id ? 'Modifica spesa' : 'Nuova spesa'}</b><span></span></div>
+    <div class="shead"><button class="homepill" data-fclose><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Annulla</button><b>${f.id ? 'Modifica' : 'Nuova spesa'}</b><button class="savepill" id="fsave2">Salva</button></div>
     <div class="wrap">
       <div class="amtbox">
         <input id="famt" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.a)}">
@@ -1042,8 +1203,10 @@ function formLive() {
   const f = S.form, a = parseNum(f.a), r = rateGuess(f.c);
   $('feur').textContent = f.c !== 'EUR' && a > 0 && r ? '≈ ' + fEur2.format(a / r) : '';
   $('famt').style.color = isNaN(a) ? 'var(--neg)' : '';
-  $('fsave').disabled = S.fSaving || !formValid();
-  $('fsave').textContent = S.fSaving ? 'Salvo…' : 'Salva';
+  ['fsave', 'fsave2'].forEach(id => {
+    $(id).disabled = S.fSaving || !formValid();
+    $(id).textContent = S.fSaving ? 'Salvo…' : 'Salva';
+  });
   document.querySelectorAll('[data-fcur]').forEach(b => b.classList.toggle('on', b.dataset.fcur === f.c));
   document.querySelectorAll('[data-fcat]').forEach(b => b.classList.toggle('on', b.dataset.fcat === f.cat));
 }
@@ -1161,6 +1324,8 @@ document.addEventListener('click', e => {
   const t = e.target.closest('button');
   if (!t) return;
   if (t.id === 'glogin') { googleLogin(); return; }
+  if (t.dataset.bankcalc !== undefined) { bankCalc(); return; }
+  if (t.dataset.bankconnect) { bankConnect(t.dataset.bankconnect); return; }
   if (t.dataset.del) { swipeDelete(t.dataset.del); return; }
   if (t.id === 'undobtn') { undoDelete(); return; }
   if (t.dataset.eye !== undefined) {
@@ -1168,11 +1333,11 @@ document.addEventListener('click', e => {
   } else if (t.dataset.go) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
     if (S.view === 'input') S.edits = {};
-    S.view = t.dataset.go; S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0;
+    S.view = t.dataset.go; S.spTab = 'main'; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.view) {
     if (S.view === 'input' && t.dataset.view !== 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
     if (S.view === 'input' && t.dataset.view !== 'input') S.edits = {};
-    S.view = t.dataset.view; render(); $('scroller').scrollTop = 0;
+    S.view = t.dataset.view; render(); resetScroll();
   } else if (t.dataset.range !== undefined) {
     S.range = Number(t.dataset.range); render();
   } else if (t.dataset.hm !== undefined) {
@@ -1190,9 +1355,9 @@ document.addEventListener('click', e => {
     save();
   /* spese */
   } else if (t.dataset.sptab) {
-    S.spTab = t.dataset.sptab; S.spCat = null; render(); $('scroller').scrollTop = 0;
+    S.spTab = t.dataset.sptab; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.spcat) {
-    S.spTab = 'mov'; S.spCat = t.dataset.spcat; render(); $('scroller').scrollTop = 0;
+    S.spTab = 'mov'; S.spCat = t.dataset.spcat; render(); resetScroll();
   } else if (t.dataset.spm) {
     S.spDir = Number(t.dataset.spm); S.spMonth = keyAdd(S.spMonth, S.spDir); render();
   } else if (t.dataset.spk) {
@@ -1210,7 +1375,7 @@ document.addEventListener('click', e => {
     S.form.cat = t.dataset.fcat; S.form.hint = ''; const fh = document.querySelector('.fhint'); if (fh) fh.remove(); formLive();
   } else if (t.dataset.fclose !== undefined) {
     closeForm();
-  } else if (t.id === 'fsave') {
+  } else if (t.id === 'fsave' || t.id === 'fsave2') {
     saveForm();
   } else if (t.id === 'fdel') {
     deleteForm();
@@ -1249,6 +1414,26 @@ document.addEventListener('keydown', e => {
 });
 
 window.addEventListener('resize', () => { if (S.view === 'home' && S.data) drawChart(); });
+// cambio pagina: torna in cima fermando lo scorrimento ancora in corso (su iPhone continuerebbe nella pagina nuova)
+function resetScroll() {
+  const el = $('scroller');
+  el.style.overflowY = 'hidden';
+  el.scrollTop = 0;
+  requestAnimationFrame(() => { el.style.overflowY = ''; el.scrollTop = 0; updateFloat(); });
+}
+
+// quando il pulsante Home / ‹ Spese esce dallo schermo, ne compare una copia che galleggia in alto
+function updateFloat() {
+  const fp = $('floatpill'), pill = $('app').querySelector('.trow .homepill');
+  let show = false;
+  if (pill && !S.form) show = pill.getBoundingClientRect().bottom < $('topcover').getBoundingClientRect().bottom + 4;
+  if (show) {
+    fp.innerHTML = pill.innerHTML;
+    ['go', 'sptab'].forEach(k => { if (pill.dataset[k]) fp.dataset[k] = pill.dataset[k]; else delete fp.dataset[k]; });
+  }
+  fp.classList.toggle('show', show);
+}
+$('scroller').addEventListener('scroll', updateFloat, { passive: true });
 
 /* ---------- indietro come in un'app ---------- */
 // schermata precedente: modulo → lista, Movimenti/categoria → Spese, sezione → Home. Dalla Home non si va da nessuna parte.
@@ -1258,12 +1443,12 @@ function canBack() {
 function goBack() {
   if (S.form) { closeForm(); return true; }
   if (S.view === 'spese' && S.spTab === 'mov') {
-    S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+    S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   if (['home', 'history', 'input', 'spese'].includes(S.view)) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return false;
     if (S.view === 'input') S.edits = {};
-    S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); $('scroller').scrollTop = 0; return true;
+    S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   return false;
 }
@@ -1326,9 +1511,19 @@ function edgeEnd() {
 document.addEventListener('touchend', edgeEnd);
 document.addEventListener('touchcancel', edgeEnd);
 
-/* ---------- app sulla Home di iPhone: altezza dello schermo ---------- */
-// in modalità a tutto schermo iOS a volte toglie in basso l'altezza della zona dell'orologio
-// (rimane una fascia vuota) e non segnala lo spazio occupato in alto: qui lo misuriamo e correggiamo
+/* ---------- app sulla Home di iPhone: spazio della barra di stato ---------- */
+// in modalità a tutto schermo iOS a volte non segnala lo spazio occupato in alto (ora, batteria):
+// qui lo misuriamo. Niente correzione in basso: oltre il bordo dello schermo iOS taglia tutto.
+// altezza della zona di ora e batteria per modello di iPhone (in punti), usata quando iOS dice 0
+function statusBarGuess() {
+  const h = Math.max(screen.width, screen.height);
+  if (h === 874 || h === 956) return 62;          // 16 Pro / 16 Pro Max e successivi
+  if (h === 852 || h === 932) return 59;          // 14 Pro, 15, 16 e Plus / Pro Max
+  if (h === 844 || h === 926) return 47;          // 12, 13, 14 e Plus / Pro Max
+  if (h === 812 || h === 896) return 44;          // X, XS, 11, mini
+  return h > 800 ? 50 : 20;                       // altri / SE
+}
+
 function fixViewport() {
   if (!STANDALONE) return;
   const el = document.activeElement;
@@ -1337,21 +1532,40 @@ function fixViewport() {
   const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
   let gap = Math.round(full - innerHeight);
   if (gap < 8 || gap > 120) gap = 0;
-  const envTop = parseFloat(getComputedStyle($('probe')).paddingTop) || 0;
+  const pcs = getComputedStyle($('probe'));
+  const envTop = parseFloat(pcs.paddingTop) || 0, envBot = parseFloat(pcs.paddingBottom) || 0;
   const root = document.documentElement.style;
-  root.setProperty('--gap', gap + 'px');
-  root.setProperty('--top', (envTop > 0 ? envTop : gap) + 'px');
+  root.setProperty('--gap', '0px');
+  // spazio in alto: quello dichiarato da iOS; se dice 0 (difetto di iOS 26) la fascia in fondo o la stima per modello
+  const top = envTop > 0 ? envTop : gap > 0 ? gap : portrait ? statusBarGuess() : 0;
+  root.setProperty('--top', top + 'px');
+  // spazio in basso per la barretta della Home: già coperto se iOS lascia la fascia; se iOS dice 0 lo stimiamo
+  if (gap > 0) root.setProperty('--sb', '0px');
+  else if (envBot > 0) root.removeProperty('--sb');
+  else root.setProperty('--sb', (portrait && full > 800 ? 34 : 0) + 'px');
+  document.documentElement.classList.toggle('iosgap', gap > 0);
 }
 fixViewport();
+// iOS a volte corregge le misure dopo l'apertura: ricontrollo poco dopo, al ritorno nell'app e se cambia la dimensione
+setTimeout(fixViewport, 300);
+setTimeout(fixViewport, 1200);
 window.addEventListener('orientationchange', () => setTimeout(fixViewport, 300));
 window.addEventListener('pageshow', fixViewport);
+window.addEventListener('resize', () => setTimeout(fixViewport, 100));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(fixViewport, 200); });
 
 /* ---------- avvio ---------- */
 // ?v=spese / ?v=patrimonio aprono direttamente la sezione;
 // ?a=importo&m=esercente(&c=valuta) arriva da Comandi Rapidi dopo un pagamento
 function applyParams(p) {
   const v = p.get('v'), a = p.get('a'), m = p.get('m');
-  if (a || m) {
+  if (p.get('code') && p.get('state')) {
+    S.bankCb = { code: p.get('code'), state: p.get('state') };
+    S.view = 'input';
+  } else if (p.get('state') && p.get('error')) {
+    S.bankCb = { error: true };
+    S.view = 'input';
+  } else if (a || m) {
     S.prefill = { a: a || '', m: m || '', c: p.get('c') || '' };
     S.view = 'spese';
   } else {
@@ -1379,7 +1593,8 @@ async function start() {
   S.ret = search;
   const sp = new URLSearchParams(search);
   // link pulito (senza token né dati della spesa) e "indietro" bloccato sulla Home
-  setupHistory(REDIRECT + ((sp.get('a') || sp.get('m')) ? '?v=spese' : search));
+  const bankBack = (sp.get('code') && sp.get('state')) || (sp.get('state') && sp.get('error'));
+  setupHistory(REDIRECT + (bankBack ? '' : (sp.get('a') || sp.get('m')) ? '?v=spese' : search));
 
   // ritorno dalla pagina di accesso di Google
   if (fromGoogle) {
@@ -1399,6 +1614,7 @@ async function start() {
   applyParams(sp);
   load();
   loadSpese();
+  completeBank();
 }
 
 start();
