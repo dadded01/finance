@@ -930,11 +930,11 @@ async function completeBank() {
   const cb = S.bankCb;
   S.bankCb = null;
   if (!cb) return;
-  S.ret = '';
-  if (cb.error) { S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
+  if (cb.error) { S.ret = ''; S.bank.err = 'Collegamento annullato o non riuscito.'; toast('Collegamento annullato'); if (S.view === 'input') render(); return; }
   S.bank.busy = true;
   try {
     S.bank.st = await call('bankComplete', cb.code, cb.state);
+    S.ret = '';   // solo a collegamento riuscito: se serviva rifare il login, il ritorno dalla banca resta valido
     S.bank.err = '';
     toast('Banca collegata');
   } catch (e) {
