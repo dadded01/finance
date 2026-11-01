@@ -326,10 +326,14 @@
   .tabs button.on { color: var(--accent); font-weight: 600; }
   .tabs svg { width: 22px; height: 22px; }
   .toast {
-    position: fixed; left: 50%; top: calc(14px + var(--top)); transform: translate(-50%, -120px); transition: transform .25s;
-    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; z-index: 11;
+    position: fixed; left: 50%; top: calc(14px + var(--top)); z-index: 11; pointer-events: none;
+    width: max-content; max-width: calc(100% - 32px); text-align: center;
+    background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 18px; font-size: 14px; font-weight: 600;
+    /* nascosto: sale oltre il bordo dello schermo di tutta la sua altezza (anche se va su due righe) e sparisce */
+    transform: translate(-50%, calc(-100% - 14px - var(--top) - 24px)); opacity: 0;
+    transition: transform .25s, opacity .25s;
   }
-  .toast.show { transform: translate(-50%, 0); }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
   .state { text-align: center; color: var(--muted); padding: 60px 20px; }
   .state.err { color: var(--neg); }
 </style>
@@ -493,12 +497,15 @@ function jwtPayload(t) {
   } catch (e) { return {}; }
 }
 
+// butta le modifiche non salvate e, con loro, i saldi calcolati (sono di oggi: non vanno mostrati in altri mesi)
+function dropEdits() { S.edits = {}; S.bank.calc = null; }
+
 async function load(year) {
   if (isNet()) $('app').innerHTML = topbar('Patrimonio') + '<div class="state">Carico i dati…</div>';
   try {
     S.data = await call('getData', year || null);
     S.dataErr = null;
-    S.edits = {};
+    dropEdits();
     S.month = defaultMonth();
     S.hMonth = lastDataMonth();
   } catch (e) {
@@ -895,6 +902,7 @@ function bankCard() {
   }).join('');
   if (done) h += `<div class="muted bknote">${MESI[S.month]} ${esc(S.data.year)} è già calcolato: i saldi salvati sul foglio non vengono sovrascritti. Se serve, correggili a mano.</div>`;
   else if (autoAccounts().some(a => a.months[S.month] !== null)) h += `<div class="muted bknote">I valori in grigio sono già salvati: Calcola compila solo quelli mancanti.</div>`;
+  if (B.calc && B.calc.err) h += `<div class="bknote neg">${esc(B.calc.err)}</div>`;
   if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
   return h + '</section>';
 }
@@ -913,11 +921,11 @@ async function bankCalc() {
   else errs.push('Banche: ' + ((res[0].reason && res[0].reason.message) || 'errore'));
   if (res[1].status === 'fulfilled') { items.push(...res[1].value.items); day = day || res[1].value.day; }
   else errs.push('ETF/Bitcoin: ' + ((res[1].reason && res[1].reason.message) || 'errore'));
-  S.bank.calc = { day, banks: items };
   let n = 0, kept = 0;
-  // se nel frattempo hai cambiato mese o anno, non si compila nulla: i saldi di oggi andrebbero nel mese sbagliato
+  // se nel frattempo hai cambiato mese o anno, non si compila né si mostra nulla: i saldi di oggi andrebbero nel mese sbagliato
   const same = S.data && S.data.year === year && S.month === month;
   if (same) {
+    S.bank.calc = { day, banks: items, err: '' };
     items.forEach(c => {
       if (c.state !== 'ok') return;
       const a = bySheet(c.sheet);
@@ -928,8 +936,10 @@ async function bankCalc() {
     });
   }
   // gli errori contano solo per le righe ancora da compilare
-  items.filter(c => c.state === 'errore' && savedVal(c.sheet) === null).forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
-  S.bank.err = errs.join(' · ');
+  if (same) {
+    items.filter(c => c.state === 'errore' && savedVal(c.sheet) === null).forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
+    S.bank.calc.err = errs.join(' · ');
+  }
   toast(!same ? 'Mese cambiato: nessun saldo compilato'
     : (n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva' : 'Nessun saldo compilato')
       + (kept ? ' · ' + kept + ' già salvati lasciati com\'erano' : ''));
@@ -1358,11 +1368,11 @@ document.addEventListener('click', e => {
     S.hidden = !S.hidden; render();
   } else if (t.dataset.go) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
-    if (S.view === 'input') S.edits = {};
+    if (S.view === 'input') dropEdits();
     S.view = t.dataset.go; S.spTab = 'main'; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.view) {
     if (S.view === 'input' && t.dataset.view !== 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return;
-    if (S.view === 'input' && t.dataset.view !== 'input') S.edits = {};
+    if (S.view === 'input' && t.dataset.view !== 'input') dropEdits();
     S.view = t.dataset.view; render(); resetScroll();
   } else if (t.dataset.range !== undefined) {
     S.range = Number(t.dataset.range); render();
@@ -1372,7 +1382,7 @@ document.addEventListener('click', e => {
     const m = Number(t.dataset.m);
     if (m === S.month) return;
     if (hasUserEdits() && !confirm('Hai modifiche non salvate. Cambiare mese comunque?')) return;
-    S.month = m; S.edits = {}; render();
+    S.month = m; dropEdits(); render();
   } else if (t.dataset.copy) {
     const a = accounts().find(x => x.row === Number(t.dataset.copy));
     const v = fIn.format(lastKnown(a, S.month));
@@ -1473,7 +1483,7 @@ function goBack() {
   }
   if (['home', 'history', 'input', 'spese'].includes(S.view)) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return false;
-    if (S.view === 'input') S.edits = {};
+    if (S.view === 'input') dropEdits();
     S.view = 'start'; S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   return false;
