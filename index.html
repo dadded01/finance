@@ -844,41 +844,69 @@ async function loadBank() {
   if (S.view === 'input') render();
 }
 
-const MARKET_ROWS = [{ key: 'etf', label: 'ETF' }, { key: 'btc', label: 'Bitcoin' }];
+// sheet = nome della riga nella scheda anno (uguale a MARKETS in Code.gs)
+const MARKET_ROWS = [{ key: 'etf', label: 'ETF', sheet: 'ETF AMS:IWDA' }, { key: 'btc', label: 'Bitcoin', sheet: 'Ledger' }];
+
+// riga del foglio con quel nome (banche ed ETF/Bitcoin)
+const bySheet = name => accounts().find(x => x.name.trim().toLowerCase() === String(name || '').trim().toLowerCase());
+// valore già salvato sul foglio per il mese scelto (null se la cella è vuota o è una formula)
+function savedVal(name) {
+  const a = bySheet(name);
+  return a && !a.locked[S.month] && a.months[S.month] !== null ? a.months[S.month] : null;
+}
+// righe che Calcola compila, escluse quelle con formula
+function autoAccounts() {
+  const names = (S.bank.st || []).map(b => b.sheet).concat(MARKET_ROWS.map(m => m.sheet));
+  return names.map(bySheet).filter(a => a && !a.locked[S.month]);
+}
+// mese già calcolato: tutti i saldi automatici hanno già un valore salvato sul foglio → Calcola non si usa più
+function monthCalculated() {
+  const list = autoAccounts();
+  return list.length > 0 && list.every(a => a.months[S.month] !== null);
+}
 
 function bankCard() {
   const B = S.bank, st = B.st;
+  const done = !!st && monthCalculated();
   let h = `<section class="card"><div class="cardhead"><span>Saldi automatici</span>
-    <button class="btn bkbtn" data-bankcalc ${B.busy || !st ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : 'Calcola'}</button></div>`;
+    <button class="btn bkbtn" data-bankcalc ${B.busy || !st || done ? 'disabled' : ''}>${B.busy ? 'Un attimo…' : done ? 'Già calcolato' : 'Calcola'}</button></div>`;
   if (!st) {
     return h + `<div class="muted bknote">${B.err ? '<span class="neg">' + esc(B.err) + '</span>' : 'Carico…'}</div></section>`;
   }
+  // valore già salvato: si mostra in grigio e Calcola non lo tocca; altrimenti il valore appena calcolato
+  const valCell = (sheet, c) => {
+    const sv = savedVal(sheet);
+    if (sv !== null) return `<span class="num muted">${eur2(sv)}</span>`;
+    return c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
+      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
+  };
   h += st.map(b => {
     const c = B.calc && B.calc.banks.find(x => x.key === b.key);
     let act = '', warn = '';
     if (!b.connected) act = 'Collega';
     else if (b.expired) { act = 'Rinnova'; warn = 'consenso scaduto'; }
     else if (b.days !== null && b.days <= 15) { act = 'Rinnova'; warn = 'scade tra ' + b.days + (b.days === 1 ? ' giorno' : ' giorni'); }
-    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
-      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
     const btn = act ? `<button class="bkact" data-bankconnect="${esc(b.key)}" ${B.busy ? 'disabled' : ''}>${act}</button>` : '';
-    return `<div class="bkrow"><div class="bkn">${esc(b.label)}${warn ? `<div class="bks warn">${warn}</div>` : ''}</div><div class="bkr">${val}${btn}</div></div>`;
+    return `<div class="bkrow"><div class="bkn">${esc(b.label)}${warn ? `<div class="bks warn">${warn}</div>` : ''}</div><div class="bkr">${valCell(b.sheet, c)}${btn}</div></div>`;
   }).join('');
   h += MARKET_ROWS.map(m => {
     const c = B.calc && B.calc.banks.find(x => x.key === m.key);
-    const val = c && c.state === 'ok' ? `<span class="num">${eur2(c.eur)}</span>`
-      : c && c.state === 'errore' ? '<span class="neg">errore</span>' : '';
-    return `<div class="bkrow"><div class="bkn">${m.label}</div><div class="bkr">${val}</div></div>`;
+    return `<div class="bkrow"><div class="bkn">${m.label}</div><div class="bkr">${valCell(m.sheet, c)}</div></div>`;
   }).join('');
+  if (done) h += `<div class="muted bknote">${MESI[S.month]} ${esc(S.data.year)} è già calcolato: i saldi salvati sul foglio non vengono sovrascritti. Se serve, correggili a mano.</div>`;
+  else if (autoAccounts().some(a => a.months[S.month] !== null)) h += `<div class="muted bknote">I valori in grigio sono già salvati: Calcola compila solo quelli mancanti.</div>`;
   if (B.err) h += `<div class="bknote neg">${esc(B.err)}</div>`;
   return h + '</section>';
 }
 
 async function bankCalc() {
-  if (S.bank.busy) return;
+  if (S.bank.busy || monthCalculated()) return;
+  const year = S.data.year, month = S.month;   // il mese su cui hai premuto Calcola
+  // conferma sempre: evita di calcolare per sbaglio un mese vecchio
+  if (!confirm('Sei sicuro di voler calcolare i valori dei conti per il mese di ' + MESI[month] + ' ' + year + '?')) return;
   S.bank.busy = true; S.bank.err = ''; render();
   const errs = [];
-  const res = await Promise.allSettled([call('bankCalcola'), call('mercatoCalcola', S.data.year)]);
+  const res = await Promise.allSettled([call('bankCalcola'), call('mercatoCalcola', year)]);
   const items = [];
   let day = '';
   if (res[0].status === 'fulfilled') { items.push(...res[0].value.banks); day = res[0].value.day; }
@@ -886,17 +914,25 @@ async function bankCalc() {
   if (res[1].status === 'fulfilled') { items.push(...res[1].value.items); day = day || res[1].value.day; }
   else errs.push('ETF/Bitcoin: ' + ((res[1].reason && res[1].reason.message) || 'errore'));
   S.bank.calc = { day, banks: items };
-  let n = 0;
-  items.forEach(c => {
-    if (c.state !== 'ok') return;
-    const a = accounts().find(x => x.name.trim().toLowerCase() === c.sheet.trim().toLowerCase());
-    if (!a || a.locked[S.month]) return;
-    S.edits[a.row] = fIn.format(c.eur);
-    n++;
-  });
-  items.filter(c => c.state === 'errore').forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
+  let n = 0, kept = 0;
+  // se nel frattempo hai cambiato mese o anno, non si compila nulla: i saldi di oggi andrebbero nel mese sbagliato
+  const same = S.data && S.data.year === year && S.month === month;
+  if (same) {
+    items.forEach(c => {
+      if (c.state !== 'ok') return;
+      const a = bySheet(c.sheet);
+      if (!a || a.locked[month]) return;
+      if (a.months[month] !== null) { kept++; return; }   // già salvato sul foglio: non si tocca
+      S.edits[a.row] = fIn.format(c.eur);
+      n++;
+    });
+  }
+  // gli errori contano solo per le righe ancora da compilare
+  items.filter(c => c.state === 'errore' && savedVal(c.sheet) === null).forEach(c => errs.push(c.label + ': ' + (c.error || 'errore')));
   S.bank.err = errs.join(' · ');
-  toast(n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva' : 'Nessun saldo compilato');
+  toast(!same ? 'Mese cambiato: nessun saldo compilato'
+    : (n ? n + (n === 1 ? ' saldo compilato' : ' saldi compilati') + ' · controlla e salva' : 'Nessun saldo compilato')
+      + (kept ? ' · ' + kept + ' già salvati lasciati com\'erano' : ''));
   loadBank();
   S.bank.busy = false;
   if (S.view === 'input') render();
