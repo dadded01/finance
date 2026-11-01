@@ -91,7 +91,7 @@
   .catname { font-weight: 550; }
   .catsub { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; margin-top: 2px; }
   .bar { height: 6px; border-radius: 3px; background: var(--chip); margin-top: 8px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .25s ease; }
 
   /* ---- inserimento ---- */
   .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
@@ -625,20 +625,33 @@ function renderHome() {
     <svg class="chart" id="chart"></svg>
   </section>`;
 
-  h += `<section class="card"><div class="cardhead"><span>Composizione</span><span class="muted" style="font-weight:400;font-size:13px">${esc(labelMese(last.label))}</span></div>`;
+  // composizione: segue il mese toccato sul grafico (vedi showComp)
+  h += `<section class="card" id="comp"><div class="cardhead"><span>Composizione</span><span class="muted" style="font-weight:400;font-size:13px" id="compm"></span></div>`;
   H.cats.forEach((c, i) => {
-    const v = last.values[i] || 0;
-    const pv = prev ? (prev.values[i] || 0) : null;
-    const dv = pv === null ? null : v - pv;
     h += `<div class="cat">
-      <div class="catrow"><span class="catname">${esc(nome(c))}</span><span class="num">${eur(v)}</span></div>
-      <div class="catsub num"><span>${fPct.format(last.total ? v / last.total : 0)} del totale</span>
-        ${dv === null ? '' : `<span class="${cls(dv)}">${signed(dv, eur)}</span>`}</div>
-      <div class="bar"><i style="width:${last.total ? Math.max(0, v / last.total * 100) : 0}%"></i></div>
+      <div class="catrow"><span class="catname">${esc(nome(c))}</span><span class="num" id="cv${i}"></span></div>
+      <div class="catsub num"><span id="cp${i}"></span><span id="cd${i}"></span></div>
+      <div class="bar"><i id="cb${i}"></i></div>
     </div>`;
   });
   h += '</section>';
   return h;
+}
+
+// riempie la Composizione con i valori del mese gi della scheda MAIN (indice nello storico completo)
+function showComp(gi) {
+  const H = S.data.history, r = H.rows[gi], pr = gi > 0 ? H.rows[gi - 1] : null;
+  if (!r || !$('compm')) return;
+  $('compm').textContent = labelMese(r.label);
+  H.cats.forEach((c, i) => {
+    const v = r.values[i] || 0;
+    const dv = pr ? v - (pr.values[i] || 0) : null;
+    $('cv' + i).textContent = eur(v);
+    $('cp' + i).textContent = fPct.format(r.total ? v / r.total : 0) + ' del totale';
+    $('cd' + i).className = dv === null ? '' : cls(dv);
+    $('cd' + i).textContent = dv === null ? '' : signed(dv, eur);
+    $('cb' + i).style.width = (r.total ? Math.max(0, v / r.total * 100) : 0) + '%';
+  });
 }
 
 function drawChart() {
@@ -647,6 +660,7 @@ function drawChart() {
   const rows = S.range ? all.slice(-S.range) : all;
   const W = svg.clientWidth || 340, Hh = 180, padT = 10, padB = 22, padX = 4;
   svg.setAttribute('viewBox', `0 0 ${W} ${Hh}`);
+  showComp(all.length - 1);
   if (rows.length < 2) { svg.innerHTML = ''; tip.textContent = ''; return; }
 
   const vals = rows.map(r => r.total);
@@ -683,6 +697,7 @@ function drawChart() {
     const d = pr ? r.total - pr.total : null;
     tip.innerHTML = `${esc(labelMese(r.label))} · <b>${eur(r.total)}</b>` +
       (d === null ? '' : ` <span class="${cls(d)}">${signed(d, eur)}</span>`);
+    showComp(all.length - rows.length + i);   // anche la Composizione passa a quel mese
   };
   const pick = ev => {
     const b = svg.getBoundingClientRect();
