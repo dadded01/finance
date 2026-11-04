@@ -568,7 +568,7 @@ const eyeBtn = () => `<button class="eye" data-eye aria-label="${S.hidden ? 'Mos
   : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'}</button>`;
 const topbar = title => `<div class="trow"><button class="homepill" data-go="start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg>Home</button>${eyeBtn()}</div><div class="bigt">${title}</div>`;
 // pagine interne delle spese: stesso stile, ma il pulsante torna alla pagina Spese
-const subbar = title => `<div class="trow"><button class="homepill back" data-sptab="main"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Spese</button>${eyeBtn()}</div><div class="bigt">${title}</div>`;
+const subbar = (title, back = 'main', backLbl = 'Spese') => `<div class="trow"><button class="homepill back" data-sptab="${back}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>${backLbl}</button>${eyeBtn()}</div><div class="bigt">${title}</div>`;
 
 function render() {
   openRow = null;
@@ -1070,15 +1070,17 @@ function renderSpese() {
   }
   const k = S.spMonth, now = curMonthKey();
   const first = S.sp.items.reduce((f, i) => i.d.slice(0, 7) < f ? i.d.slice(0, 7) : f, now);
-  const mov = S.spTab === 'mov';
-  const cat = mov ? S.spCat : null;   // Movimenti filtrati per categoria (tocco su una categoria)
+  const tab = S.spTab;                // 'main' movimenti · 'cat' per categoria · 'mov' movimenti di una categoria
+  const cat = tab === 'mov' ? S.spCat : null;
   const items = S.sp.items.filter(i => i.d.slice(0, 7) === k && (!cat || i.cat === cat)).sort((a, b) => b.d.localeCompare(a.d));
   const tot = items.reduce((t, i) => t + (i.e || 0), 0);
   const pk = keyAdd(k, -1);
   const ptot = S.sp.items.reduce((t, i) => t + (i.d.slice(0, 7) === pk && (!cat || i.cat === cat) ? (i.e || 0) : 0), 0);
   const mese = keyLabel(k).split(' ')[0].toLowerCase();
 
-  let h = !mov ? topbar('Spese') : subbar(cat ? catIcon(cat) + ' ' + esc(cat) : 'Movimenti');
+  let h = tab === 'main' ? topbar('Spese')
+    : tab === 'cat' ? subbar('Per categoria')
+    : subbar(catIcon(cat) + ' ' + esc(cat), 'cat', 'Categorie');
   h += `<div class="mnav">
     <button data-spm="-1" ${k <= first ? 'disabled' : ''} aria-label="Mese precedente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
     <span class="t" id="mtitle">${keyLabel(k)}</span>
@@ -1091,13 +1093,13 @@ function renderSpese() {
       <div class="big num">${eur2(tot)}</div>
       <div class="sub num">${items.length} ${items.length === 1 ? 'spesa' : 'spese'}${ptot ? ` · ${keyLabel(pk).split(' ')[0].toLowerCase()}: ${eur(ptot)}` : ''}</div>
     </div>
-    ${mov ? '' : `<button class="movbtn" data-sptab="mov">Movimenti<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`}
+    ${tab !== 'main' ? '' : `<button class="movbtn" data-sptab="cat">Categorie<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`}
   </div>`;
 
-  return h + (mov ? renderMovimenti(items) : renderRiepilogo(k, items, tot, now)) + '</div>';
+  return h + (tab === 'cat' ? renderRiepilogo(k, items, tot, now) : renderMovimenti(items)) + '</div>';
 }
 
-// pagina principale: colonne degli ultimi 12 mesi + spese per categoria
+// pagina Categorie: colonne degli ultimi 12 mesi + spese per categoria
 function renderRiepilogo(k, items, tot, now) {
   let end = now;
   if (k < keyAdd(end, -11)) end = keyAdd(k, 11);
@@ -1126,7 +1128,7 @@ function renderRiepilogo(k, items, tot, now) {
   return h + '</section>';
 }
 
-// pagina Movimenti: tutte le spese del mese, raggruppate per giorno
+// pagina principale (e pagina di una categoria): spese del mese, raggruppate per giorno
 function renderMovimenti(items) {
   if (!items.length) return '<div class="state">Nessuna spesa in questo mese.<br>Tocca + per aggiungerne una.</div>';
   const days = [];
@@ -1489,14 +1491,14 @@ function updateFloat() {
 $('scroller').addEventListener('scroll', updateFloat, { passive: true });
 
 /* ---------- indietro come in un'app ---------- */
-// schermata precedente: modulo → lista, Movimenti/categoria → Spese, sezione → Home. Dalla Home non si va da nessuna parte.
+// schermata precedente: modulo → lista, categoria → Categorie → Spese, sezione → Home. Dalla Home non si va da nessuna parte.
 function canBack() {
   return !!S.form || ['home', 'history', 'input', 'spese'].includes(S.view);
 }
 function goBack() {
   if (S.form) { closeForm(); return true; }
-  if (S.view === 'spese' && S.spTab === 'mov') {
-    S.spTab = 'main'; S.spCat = null; render(); resetScroll(); return true;
+  if (S.view === 'spese' && S.spTab !== 'main') {
+    S.spTab = S.spTab === 'mov' ? 'cat' : 'main'; S.spCat = null; render(); resetScroll(); return true;
   }
   if (['home', 'history', 'input', 'spese'].includes(S.view)) {
     if (S.view === 'input' && hasUserEdits() && !confirm('Hai modifiche non salvate. Uscire comunque?')) return false;
@@ -1672,5 +1674,3 @@ async function start() {
 
 start();
 </script>
-</body>
-</html>
