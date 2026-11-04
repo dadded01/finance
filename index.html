@@ -1096,11 +1096,12 @@ function renderSpese() {
     ${tab !== 'main' ? '' : `<button class="movbtn" data-sptab="cat">Categorie<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`}
   </div>`;
 
-  return h + (tab === 'cat' ? renderRiepilogo(k, items, tot, now) : renderMovimenti(items)) + '</div>';
+  if (tab === 'cat') return h + renderRiepilogo(items, tot) + '</div>';
+  return h + (tab === 'main' ? barsCard(k, now) : '') + renderMovimenti(items) + '</div>';
 }
 
-// pagina Categorie: colonne degli ultimi 12 mesi + spese per categoria
-function renderRiepilogo(k, items, tot, now) {
+// colonne degli ultimi 12 mesi (in cima alla pagina principale, sopra i movimenti)
+function barsCard(k, now) {
   let end = now;
   if (k < keyAdd(end, -11)) end = keyAdd(k, 11);
   const months = []; for (let i = 11; i >= 0; i--) months.push(keyAdd(end, -i));
@@ -1113,9 +1114,13 @@ function renderRiepilogo(k, items, tot, now) {
     <div class="bars">${months.map((m, i) => `<button data-spk="${m}" class="${m === k ? 'on' : ''}" title="${keyLabel(m)}: ${eur(totals[i])}" aria-label="${keyLabel(m)}: ${eur(totals[i])}">
       <div class="bw"><i style="height:${totals[i] / max * 100}%"></i></div><span>${keyLabel(m, true)}</span></button>`).join('')}</div>
   </section>`;
+  return h;
+}
 
-  if (!items.length) return h + '<div class="state">Nessuna spesa in questo mese.<br>Tocca + per aggiungerne una.</div>';
-
+// pagina Categorie: spese del mese per categoria
+function renderRiepilogo(items, tot) {
+  if (!items.length) return '<div class="state">Nessuna spesa in questo mese.<br>Tocca + per aggiungerne una.</div>';
+  let h = '';
   const byCat = {};
   items.forEach(i => { const c = byCat[i.cat] || (byCat[i.cat] = { t: 0, n: 0 }); c.t += i.e || 0; c.n++; });
   const cats = Object.keys(byCat).sort((a, b) => byCat[b].t - byCat[a].t);
@@ -1672,5 +1677,37 @@ async function start() {
   completeBank();
 }
 
+/* ---------- aggiornamento automatico ----------
+ * GitHub Pages fa tenere la pagina in memoria al telefono fino a 10 minuti, così dopo un
+ * aggiornamento l'app continuerebbe a mostrare la versione vecchia. All'apertura (e ogni volta che
+ * l'app torna in primo piano) si scarica la versione pubblicata saltando la memoria: se il codice è
+ * cambiato, la pagina si ricarica da sola. Se stai scrivendo una spesa o hai valori non salvati,
+ * aspetta la volta successiva, così non perdi niente. */
+const pageCode = d => [...d.querySelectorAll('script:not([src]), style')].map(x => x.textContent).join('\n');
+let updAt = 0;
+async function checkUpdate() {
+  if (Date.now() - updAt < 30000) return;
+  updAt = Date.now();
+  try {
+    const url = location.href.split('#')[0];
+    const res = await fetch(url, { cache: 'reload' });   // chiede sempre al server e rinfresca la memoria
+    if (!res.ok) return;
+    const fresh = pageCode(new DOMParser().parseFromString(await res.text(), 'text/html'));
+    if (!fresh || fresh === pageCode(document)) return;
+    if (S.form || S.saving || S.fSaving || (S.bank && S.bank.busy) || (S.view === 'input' && hasUserEdits())) { updAt = 0; return; }
+    // al massimo un ricaricamento al minuto: se qualcosa va storto non entra mai in un giro infinito
+    let last = 0;
+    try { last = Number(sessionStorage.getItem('finanze_upd')) || 0; sessionStorage.setItem('finanze_upd', String(Date.now())); } catch (e) { /* niente */ }
+    if (Date.now() - last < 60000) return;
+    try { sessionStorage.setItem('finanze_updated', '1'); } catch (e) { /* niente */ }
+    location.reload();
+  } catch (e) { /* senza rete: si riprova alla prossima apertura */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+
 start();
+checkUpdate();
+try {
+  if (sessionStorage.getItem('finanze_updated')) { sessionStorage.removeItem('finanze_updated'); setTimeout(() => toast('App aggiornata'), 600); }
+} catch (e) { /* niente */ }
 </script>
