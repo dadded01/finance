@@ -198,6 +198,15 @@
     background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px 18px;
   }
   .go:active { transform: scale(.99); }
+  /* pagamenti arrivati dal comando rapido, da confermare */
+  .pendbtn {
+    width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; margin-bottom: 14px;
+    border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text); border-radius: 16px; padding: 13px 14px;
+  }
+  .pendbtn .pi { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 750; }
+  .pendbtn .pt { flex: 1; min-width: 0; font-weight: 650; }
+  .pendbtn .pt small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pendbtn > svg { flex: 0 0 18px; width: 18px; height: 18px; color: var(--accent); }
   .goic { flex: 0 0 48px; width: 48px; height: 48px; border-radius: 14px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
   .goic svg { width: 26px; height: 26px; }
   .gol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -299,6 +308,9 @@
   .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .btn.wide { display: block; width: 100%; margin-top: 16px; padding: 14px; font-size: 16px; }
   .btn.del { display: block; width: 100%; margin-top: 8px; padding: 12px; background: none; color: var(--neg); }
+  .btn.later { display: block; width: 100%; margin-top: 8px; padding: 12px; background: none; color: var(--muted); }
+  .shead .homepill.discard { background: rgba(208, 56, 56, .12); color: var(--neg); }
+  @media (prefers-color-scheme: dark) { .shead .homepill.discard { background: rgba(255, 107, 107, .14); } }
 
   /* ---- accesso ---- */
   .login { min-height: 72vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 0 12px; }
@@ -388,7 +400,7 @@ const GIORNI = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerd�
 const NOMI = { 'LIQUIDITY': 'Liquidità', 'STOCKS': 'Azioni', 'INV SICURI': 'Investimenti sicuri',
                'INVESTIMENTI SICURI': 'Investimenti sicuri', 'BONDS': 'Investimenti sicuri', 'CRYPTO': 'Crypto' };
 
-const S = { data: null, dataErr: null, view: 'start', hidden: true, month: 0, hMonth: 0, edits: {}, range: 12, saving: false,
+const S = { pendSeen: new Set(), spAt: 0, data: null, dataErr: null, view: 'start', hidden: true, month: 0, hMonth: 0, edits: {}, range: 12, saving: false,
             sp: null, spErr: null, spLoading: false, spMonth: '', spTab: 'main', spCat: null, lastCur: 'DKK', form: null, fSaving: false,
             loginMsg: '', ret: '',
             bank: { st: null, calc: null, busy: false, loading: false, err: '' }, bankCb: null };
@@ -1028,6 +1040,7 @@ function renderStart() {
       <span class="goic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
       <span class="gol"><span class="gon">Spese</span><span class="gov num">${sv}</span><span class="gos num">${ss}</span></span>${chev}
     </button>
+    ${pendBtn()}
   </div>`;
 }
 
@@ -1051,6 +1064,7 @@ async function loadSpese() {
   S.spLoading = true; S.spErr = null;
   try {
     S.sp = await call('getSpese');
+    S.spAt = Date.now();
     S.ret = '';   // dati arrivati: non serve più ricordare il link d'arrivo per il login
     const last = S.sp.items.reduce((b, i) => !b || i.d > b.d ? i : b, null);
     if (last) S.lastCur = last.c;
@@ -1060,6 +1074,7 @@ async function loadSpese() {
   S.spLoading = false;
   if (S.view === 'spese' || S.view === 'start') render();
   openPrefill();
+  openPending();
 }
 
 function renderSpese() {
@@ -1078,7 +1093,7 @@ function renderSpese() {
   const ptot = S.sp.items.reduce((t, i) => t + (i.d.slice(0, 7) === pk && (!cat || i.cat === cat) ? (i.e || 0) : 0), 0);
   const mese = keyLabel(k).split(' ')[0].toLowerCase();
 
-  let h = tab === 'main' ? topbar('Spese')
+  let h = tab === 'main' ? topbar('Spese') + pendBtn()
     : tab === 'cat' ? subbar('Per categoria')
     : subbar(catIcon(cat) + ' ' + esc(cat), 'cat', 'Categorie');
   h += `<div class="mnav">
@@ -1216,6 +1231,74 @@ function openPrefill() {
   renderForm();
 }
 
+/* ---------- pagamenti da confermare (arrivati dal comando rapido senza aprire l'app) ---------- */
+const pendList = () => (S.sp && S.sp.pending) || [];
+function pendBtn() {
+  const L = pendList();
+  if (!L.length) return '';
+  const n = L.length, m = L.map(x => x.m).filter(Boolean).slice(0, 3).join(', ');
+  return `<button class="pendbtn" data-pending><span class="pi">${n}</span>
+    <span class="pt">${n === 1 ? 'Pagamento da confermare' : n + ' pagamenti da confermare'}${m ? `<small>${esc(m)}${n > 3 ? '…' : ''}</small>` : ''}</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`;
+}
+
+// apre da solo il primo pagamento non ancora visto; force = tocco sul pulsante "da confermare"
+function openPending(force) {
+  if (!S.sp || S.form || S.view === 'login' || S.prefill) return;
+  const p = pendList().find(x => force || !S.pendSeen.has(x.p));
+  if (!p) return;
+  S.pendSeen.add(p.p);
+  openForm('', true);
+  const ok = p.cat && S.sp.cats.some(c => c.name === p.cat);
+  Object.assign(S.form, {
+    a: fIn.format(p.a), c: S.sp.valute.includes(p.c) ? p.c : S.form.c, d: p.d, n: p.m || '',
+    cat: ok ? p.cat : '', pid: p.p, hint: ok && p.m ? 'suggerita per «' + p.m + '»' : ''
+  });
+  renderForm();
+}
+function pendDone(pid) {
+  if (S.sp && S.sp.pending) S.sp.pending = S.sp.pending.filter(x => x.p !== pid);
+}
+// dopo Salva o Scarta passa al pagamento successivo, se c'è
+function nextPending() {
+  if (pendList().length) setTimeout(() => openPending(true), 450);
+}
+
+async function discardPending() {
+  const f = S.form;
+  if (!f || !f.pid || S.fSaving) return;
+  S.fSaving = true; formLive();
+  try {
+    await call('scartaPending', f.pid);
+    pendDone(f.pid);
+    S.fSaving = false;
+    closeForm(); render();
+    toast('Pagamento scartato');
+    nextPending();
+  } catch (e) {
+    S.fSaving = false; formLive();
+    toast('Errore: ' + (e.message || e));
+  }
+}
+
+// app che torna in primo piano (es. dopo aver pagato): ricarica le spese per vedere i pagamenti nuovi
+async function refreshSpese() {
+  if (!getSess() || !S.sp || S.form || S.pend || S.spLoading || S.view === 'login' || Date.now() - S.spAt < 15000) return;
+  S.spLoading = true;
+  try {
+    const d = await call('getSpese');
+    S.spAt = Date.now();
+    if (!S.form && !S.pend) {
+      const changed = d.items.length !== S.sp.items.length || (d.pending || []).length !== pendList().length;
+      S.sp = d;
+      if (changed && !openRow && (S.view === 'spese' || S.view === 'start')) render();
+    }
+  } catch (e) { /* si riprova alla prossima apertura */ }
+  S.spLoading = false;
+  openPending();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(refreshSpese, 300); });
+
 function closeForm() {
   S.form = null;
   $('form').hidden = true;
@@ -1227,7 +1310,7 @@ function renderForm() {
   const f = S.form, cats = S.sp.cats.slice();
   if (f.cat && !cats.some(c => c.name === f.cat)) cats.push({ name: f.cat, icon: '•' });
   $('form').innerHTML = `
-    <div class="shead"><button class="homepill" data-fclose><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>Annulla</button><b>${f.id ? 'Modifica' : 'Nuova spesa'}</b><button class="savepill" id="fsave2">Salva</button></div>
+    <div class="shead"><button class="homepill${f.pid ? ' discard' : ''}" ${f.pid ? 'data-fdiscard' : 'data-fclose'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>${f.pid ? 'Scarta' : 'Annulla'}</button><b>${f.id ? 'Modifica' : f.pid ? 'Da confermare' : 'Nuova spesa'}</b><button class="savepill" id="fsave2">Salva</button></div>
     <div class="wrap">
       <div class="amtbox">
         <div class="amtl"><input id="famt" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${esc(f.a)}">
@@ -1242,6 +1325,7 @@ function renderForm() {
       <input id="fnote" class="field" autocomplete="off" placeholder="facoltativa" value="${esc(f.n)}">
       <button class="btn wide" id="fsave">Salva</button>
       ${f.id ? '<button class="btn del" id="fdel">Elimina spesa</button>' : ''}
+      ${f.pid ? '<button class="btn later" data-flater>Più tardi</button>' : ''}
     </div>`;
   formLive();
 }
@@ -1275,6 +1359,7 @@ async function saveForm() {
   const f = S.form;
   if (!formValid() || S.fSaving) return;
   const payload = { id: f.id, d: f.d.slice(0, 16), a: parseNum(f.a), c: f.c, cat: f.cat, n: f.n.trim() };
+  if (f.pid) payload.pid = f.pid;
   const o = f.orig;
   if (o && o.d === payload.d && o.a === payload.a && o.c === payload.c && o.cat === payload.cat && o.n === payload.n) { closeForm(); return; }
   S.fSaving = true; formLive();
@@ -1285,9 +1370,11 @@ async function saveForm() {
     S.lastCur = it.c;
     S.spMonth = it.d.slice(0, 7);
     S.fSaving = false;
+    if (f.pid) pendDone(f.pid);
     closeForm();
     render();
     toast(f.id ? 'Spesa aggiornata' : 'Spesa salvata');
+    if (f.pid) nextPending();
   } catch (e) {
     S.fSaving = false; formLive();
     toast('Errore: ' + (e.message || e));
@@ -1435,6 +1522,12 @@ document.addEventListener('click', e => {
     S.form.cat = t.dataset.fcat; S.form.hint = ''; const fh = document.querySelector('.fhint'); if (fh) fh.remove(); formLive();
   } else if (t.dataset.fclose !== undefined) {
     closeForm();
+  } else if (t.dataset.fdiscard !== undefined) {
+    discardPending();
+  } else if (t.dataset.flater !== undefined) {
+    closeForm(); render();
+  } else if (t.dataset.pending !== undefined) {
+    openPending(true);
   } else if (t.id === 'fsave' || t.id === 'fsave2') {
     saveForm();
   } else if (t.id === 'fdel') {
