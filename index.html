@@ -227,6 +227,20 @@
     border: 0; border-radius: 999px; padding: 9px 10px 9px 14px; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 14px;
   }
   .movbtn svg { width: 16px; height: 16px; }
+  /* andamento del mese rispetto al solito: a destra del totale, sopra Categorie */
+  :root { --warn: #c2620a; }
+  @media (prefers-color-scheme: dark) { :root { --warn: #f0a243; } }
+  .sphero > div:first-child { min-width: 0; }
+  .spr { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .pace { border: 0; background: none; padding: 0; text-align: right; line-height: 1.25; color: var(--muted); max-width: 150px; }
+  .pace .p1 { font-weight: 700; font-size: 16px; white-space: nowrap; color: var(--text); }
+  .pace .p1b { font-weight: 600; font-size: 12.5px; }
+  .pace.down .p1, .pace.down .p1b { color: var(--pos); }
+  .pace.up .p1, .pace.up .p1b { color: var(--warn); }
+  .pace .p2 { margin-top: 4px; font-size: 12.5px; white-space: nowrap; }
+  /* con l'indicatore accanto, il totale si rimpicciolisce un po' sugli schermi stretti invece di andare a capo */
+  .sphero .big { font-size: clamp(30px, 9.6vw, 38px); white-space: nowrap; }
+  .nw { white-space: nowrap; }
   .subhead { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin: -4px 0 10px; }
   .subhead b { font-size: 17px; }
   .back { justify-self: start; display: flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px 4px 6px 0; color: var(--accent); font-size: 15px; }
@@ -1091,6 +1105,62 @@ function nowLocal() {
 const catIcon = name => { const c = S.sp && S.sp.cats.find(x => x.name === name); return c ? c.icon : '•'; };
 const monthTotal = k => S.sp.items.reduce((t, i) => t + (i.d.slice(0, 7) === k ? (i.e || 0) : 0), 0);
 
+/* ---------- andamento del mese rispetto al solito ----------
+ * "Il solito" = mediana dei 6 mesi prima (servono almeno 3 mesi con spese): un mese eccezionale non lo sposta.
+ * Mese in corso: speso finora contro quanto avevi speso di solito allo stesso punto del mese (stessa frazione
+ * di mese, ora compresa: l'affitto del 1° c'è anche nel solito, quindi non sfasa il confronto).
+ * Proiezione = speso finora + quello che di solito spendi da questo punto a fine mese.
+ * Mesi passati: totale del mese contro il mese tipico dei 6 mesi prima.
+ * Provato sui mesi gen–ott 2026: la proiezione sbaglia in media di ~180 €, quella "lineare" di migliaia
+ * a inizio mese (per via dell'affitto). */
+const PACE_MONTHS = 6, PACE_MIN = 3;
+const median = a => { const s = a.slice().sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; };
+const daysIn = k => new Date(+k.slice(0, 4), +k.slice(5, 7), 0).getDate();
+// punto del mese tra 0 (1° alle 00:00) e 1 (fine mese) di una spesa
+const monthFrac = d => (+d.slice(8, 10) - 1 + (+d.slice(11, 13) * 60 + +d.slice(14, 16)) / 1440) / daysIn(d.slice(0, 7));
+
+function paceInfo(k) {
+  const now = curMonthKey();
+  if (!S.sp || k > now) return null;
+  const byMonth = {};
+  S.sp.items.forEach(i => { if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(i.d)) (byMonth[i.d.slice(0, 7)] = byMonth[i.d.slice(0, 7)] || []).push(i); });
+  const ref = [];
+  for (let n = 1; n <= PACE_MONTHS; n++) { const r = keyAdd(k, -n); if (byMonth[r]) ref.push(r); }
+  if (ref.length < PACE_MIN) return null;
+  const span = keyLabel(ref[ref.length - 1], true).toLowerCase() + '–' + keyLabel(ref[0], true).toLowerCase();
+  const sum = (list, upTo) => (list || []).reduce((t, i) => t + (upTo === undefined || monthFrac(i.d) <= upTo ? (i.e || 0) : 0), 0);
+  const spent = sum(byMonth[k]);
+  const typTot = median(ref.map(r => sum(byMonth[r])));
+  if (k < now) return { past: true, spent, typ: typTot, diff: spent - typTot, span, n: ref.length };
+  const t = new Date();
+  const f = (t.getDate() - 1 + (t.getHours() * 60 + t.getMinutes()) / 1440) / daysIn(k);
+  const typTo = median(ref.map(r => sum(byMonth[r], f)));
+  const rest = median(ref.map(r => sum(byMonth[r]) - sum(byMonth[r], f)));
+  return { past: false, spent, typ: typTo, typTot, diff: spent - typTo, proj: spent + rest, span, n: ref.length };
+}
+
+// due righe a destra del totale: "▼ 110 € meno del solito" (con gli importi nascosti in %) e la proiezione
+function paceHtml(k) {
+  const p = paceInfo(k);
+  if (!p) return '';
+  const tol = Math.max(15, 0.05 * p.typ);          // entro il 5% (almeno 15 €) è "in linea"
+  const dir = p.diff > tol ? 'up' : p.diff < -tol ? 'down' : 'even';
+  const amt = S.hidden ? (p.typ > 0 ? fPct0.format(Math.abs(p.diff) / p.typ) : '') : fEur0.format(Math.abs(p.diff));
+  const p1 = dir === 'even' ? '≈ in linea' : (dir === 'up' ? '▲ ' : '▼ ') + amt;
+  const p1b = dir === 'even' ? 'con il solito' : (dir === 'up' ? 'più' : 'meno') + ' del solito';
+  const p2 = p.past ? 'mese tipico ≈ ' + eur(p.typ) : 'fine mese ≈ ' + eur(p.proj);
+  return `<button class="pace ${dir}" data-pace="${k}" aria-label="${p1} ${p1b}, ${p2}"><div class="p1 num">${p1}</div><div class="p1b">${p1b}</div><div class="p2 num">${p2}</div></button>`;
+}
+
+// tocco sull'indicatore: da dove vengono i numeri
+function paceExplain(k) {
+  const p = paceInfo(k);
+  if (!p) return;
+  const base = 'mediana dei ' + p.n + ' mesi ' + p.span;
+  toast(p.past ? 'Mese tipico ' + eur(p.typ) + ' (' + base + ')'
+    : 'Di solito a questo punto avevi speso ' + eur(p.typ) + ', in tutto il mese ' + eur(p.typTot) + ' (' + base + ')');
+}
+
 async function loadSpese() {
   if (S.spLoading) return;
   S.spLoading = true; S.spErr = null;
@@ -1139,9 +1209,9 @@ function renderSpese() {
     <div>
       <div class="lbl">${cat ? esc(cat) + ' a ' + mese : 'Speso a ' + mese}</div>
       <div class="big num">${eur2(tot)}</div>
-      <div class="sub num">${items.length} ${items.length === 1 ? 'spesa' : 'spese'}${ptot ? ` · ${keyLabel(pk).split(' ')[0].toLowerCase()}: ${eur(ptot)}` : ''}</div>
+      <div class="sub num">${items.length} ${items.length === 1 ? 'spesa' : 'spese'}${ptot ? ` · <span class="nw">${keyLabel(pk).split(' ')[0].toLowerCase()}: ${eur(ptot)}</span>` : ''}</div>
     </div>
-    ${tab !== 'main' ? '' : `<button class="movbtn" data-sptab="cat">Categorie<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`}
+    ${tab !== 'main' ? '' : `<div class="spr">${paceHtml(k)}<button class="movbtn" data-sptab="cat">Categorie<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>`}
   </div>`;
 
   if (tab === 'cat') return h + renderRiepilogo(items, tot) + '</div>';
@@ -1585,6 +1655,8 @@ document.addEventListener('click', e => {
   } else if (t.id === 'save') {
     save();
   /* spese */
+  } else if (t.dataset.pace) {
+    paceExplain(t.dataset.pace);
   } else if (t.dataset.sptab) {
     S.spTab = t.dataset.sptab; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.spcat) {
