@@ -245,6 +245,22 @@
   /* con l'indicatore accanto, il totale si rimpicciolisce un po' sugli schermi stretti invece di andare a capo */
   .sphero .big { font-size: clamp(30px, 9.6vw, 38px); white-space: nowrap; }
   .nw { white-space: nowrap; }
+  /* nelle Spese lo scorrimento orizzontale lo gestisce l'app (cambio mese), quello verticale resta al telefono */
+  body.vspese #scroller { touch-action: pan-y; }
+  /* grafico a torta nella pagina Categorie: le 4 categorie più grandi a colori, le altre insieme in grigio.
+     Colori scelti e verificati perché restino distinguibili tra loro in qualsiasi ordine, anche per chi
+     non distingue bene rosso e verde; le percentuali scritte sulle fette e la lista sotto fanno da legenda */
+  :root { --pie1: #2a78d6; --pie2: #008300; --pie3: #e87ba4; --pie4: #eda100; --pie-rest: #4f4e4a; --pie-rest-ink: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --pie1: #3987e5; --pie2: #008300; --pie3: #d55181; --pie4: #c98500; --pie-rest: #b4b3ac; --pie-rest-ink: #0b0b0b; }
+  }
+  .pie { display: block; width: 210px; height: 210px; margin: 8px auto 10px; overflow: visible; }
+  .pie circle[data-spcat] { cursor: pointer; }
+  .pie .lb { font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: #fff; pointer-events: none; }
+  .pie .lb.ink { fill: #0b0b0b; }
+  .pie .lb.rest { fill: var(--pie-rest-ink); }
+  .pie .pc1 { font-size: 21px; font-weight: 700; text-anchor: middle; fill: var(--text); }
+  .pie .pc2 { font-size: 12px; text-anchor: middle; fill: var(--muted); }
   .subhead { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin: -4px 0 10px; }
   .subhead b { font-size: 17px; }
   .back { justify-self: start; display: flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px 4px 6px 0; color: var(--accent); font-size: 15px; }
@@ -1109,6 +1125,10 @@ function nowLocal() {
 const catIcon = name => { const c = S.sp && S.sp.cats.find(x => x.name === name); return c ? c.icon : '•'; };
 const monthTotal = k => S.sp.items.reduce((t, i) => t + (i.d.slice(0, 7) === k ? (i.e || 0) : 0), 0);
 
+// primo mese con spese (le righe senza una data valida non contano) e se si può andare avanti/indietro di un mese
+const firstMonth = () => S.sp.items.reduce((f, i) => /^\d{4}-\d{2}/.test(i.d) && i.d.slice(0, 7) < f ? i.d.slice(0, 7) : f, curMonthKey());
+const canMonth = dir => !!S.sp && (dir > 0 ? S.spMonth < curMonthKey() : S.spMonth > firstMonth());
+
 /* ---------- andamento del mese rispetto al solito ----------
  * "Il solito" = mediana dei 6 mesi prima (servono almeno 3 mesi con spese): un mese eccezionale non lo sposta.
  * Mese in corso: speso finora contro quanto avevi speso di solito allo stesso punto del mese (stessa frazione
@@ -1182,7 +1202,7 @@ function renderSpese() {
   }
   const k = S.spMonth, now = curMonthKey();
   // primo mese con spese (le righe senza una data valida non contano)
-  const first = S.sp.items.reduce((f, i) => /^\d{4}-\d{2}/.test(i.d) && i.d.slice(0, 7) < f ? i.d.slice(0, 7) : f, now);
+  const first = firstMonth();
   const tab = S.spTab;                // 'main' movimenti · 'cat' per categoria · 'mov' movimenti di una categoria
   const cat = tab === 'mov' ? S.spCat : null;
   const items = S.sp.items.filter(i => i.d.slice(0, 7) === k && (!cat || i.cat === cat)).sort((a, b) => b.d.localeCompare(a.d));
@@ -1237,13 +1257,47 @@ function renderRiepilogo(items, tot) {
   const byCat = {};
   items.forEach(i => { const c = byCat[i.cat] || (byCat[i.cat] = { t: 0, n: 0 }); c.t += i.e || 0; c.n++; });
   const cats = Object.keys(byCat).sort((a, b) => byCat[b].t - byCat[a].t);
-  h += `<section class="card"><div class="cardhead"><span>Per categoria</span></div>`;
+  const pie = pieParts(cats.map(c => [c, byCat[c].t]), tot);
+  h += `<section class="card"><div class="cardhead"><span>Per categoria</span></div>${pie.svg}`;
   h += cats.map(c => `<button class="cat" data-spcat="${esc(c)}">
       <div class="catrow"><span class="catname"><span class="ic">${catIcon(c)}</span>${esc(c)}</span><span class="num catv">${eur2(byCat[c].t)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span></div>
       <div class="catsub num"><span>${fPct0.format(tot ? byCat[c].t / tot : 0)} · ${byCat[c].n} ${byCat[c].n === 1 ? 'spesa' : 'spese'}</span></div>
-      <div class="bar"><i style="width:${tot ? byCat[c].t / tot * 100 : 0}%"></i></div>
+      <div class="bar"><i style="width:${tot ? byCat[c].t / tot * 100 : 0}%;background:${pie.color(c)}"></i></div>
     </button>`).join('');
   return h + '</section>';
+}
+
+/* Torta delle categorie: list = [[categoria, € nel mese], …] dalla più grande.
+ * Fino a 5 categorie: ognuna la sua fetta (la quinta in grigio). Di più: le prime 4 a colori + "Altre" in grigio.
+ * Le fette partono da mezzogiorno in senso orario; tra una fetta e l'altra 2 px di stacco.
+ * Tocco su una fetta colorata = come toccare la categoria nella lista. */
+const PIE_TOP = 4;
+function pieParts(list, tot) {
+  list = list.filter(x => x[1] > 0);
+  const rest = 'var(--pie-rest)';
+  const color = c => { const i = list.findIndex(x => x[0] === c); return i >= 0 && i < PIE_TOP ? `var(--pie${i + 1})` : rest; };
+  if (!list.length || !(tot > 0)) return { svg: '', color };
+  const parts = list.length <= PIE_TOP + 1
+    ? list.map((x, i) => ({ cat: x[0], v: x[1], i }))
+    : list.slice(0, PIE_TOP).map((x, i) => ({ cat: x[0], v: x[1], i }))
+        .concat([{ cat: '', label: 'Altre', v: list.slice(PIE_TOP).reduce((t, x) => t + x[1], 0), i: PIE_TOP }]);
+  const R = 76, W = 30, C = 2 * Math.PI * R, GAP = parts.length > 1 ? 2 : 0;
+  let acc = 0, segs = '', labels = '';
+  parts.forEach(p => {
+    const f = p.v / tot, len = f * C, dash = Math.max(0.01, len - GAP);
+    const col = p.i < PIE_TOP ? `var(--pie${p.i + 1})` : rest;
+    segs += `<circle cx="100" cy="100" r="${R}" fill="none" stroke="${col}" stroke-width="${W}" stroke-dasharray="${dash.toFixed(2)} ${(C - dash).toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}" transform="rotate(-90 100 100)"${p.cat && p.i < PIE_TOP ? ` data-spcat="${esc(p.cat)}"` : ''}><title>${esc(p.cat || p.label)}</title></circle>`;
+    if (f >= 0.07) {   // percentuale scritta sulla fetta, se c'è spazio
+      const a = (acc + len / 2) / C * 2 * Math.PI - Math.PI / 2;
+      const cls = p.i === 3 ? 'lb ink' : p.i >= PIE_TOP ? 'lb rest' : 'lb';
+      labels += `<text class="${cls}" x="${(100 + R * Math.cos(a)).toFixed(1)}" y="${(100 + R * Math.sin(a)).toFixed(1)}">${fPct0.format(f)}</text>`;
+    }
+    acc += len;
+  });
+  const aria = parts.map(p => (p.cat || p.label) + ' ' + fPct0.format(p.v / tot)).join(', ');
+  const svg = `<svg class="pie" viewBox="0 0 200 200" role="img" aria-label="Spese per categoria: ${esc(aria)}">${segs}${labels}
+    <text class="pc1 num" x="100" y="97">${eur(tot)}</text><text class="pc2" x="100" y="119">totale</text></svg>`;
+  return { svg, color };
 }
 
 // pagina principale (e pagina di una categoria): spese del mese, raggruppate per giorno
@@ -1617,7 +1671,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) commi
 /* ---------- eventi ---------- */
 document.addEventListener('click', e => {
   if (eatClick) { eatClick = false; e.preventDefault(); return; }
-  const t = e.target.closest('button');
+  const t = e.target.closest('button, circle[data-spcat]');
   if (!t) return;
   if (t.id === 'glogin') { googleLogin(); return; }
   if (t.dataset.bankcalc !== undefined) { bankCalc(); return; }
@@ -1814,6 +1868,50 @@ function edgeEnd() {
 }
 document.addEventListener('touchend', edgeEnd);
 document.addEventListener('touchcancel', edgeEnd);
+
+/* ---------- Spese: swipe a sinistra = mese dopo, a destra = mese prima ----------
+ * Non parte dalle righe delle spese (lì lo swipe a sinistra apre il cestino), né dal bordo sinistro
+ * dell'app sulla Home (lì è il gesto "indietro"), né con il modulo o una riga aperti.
+ * Mentre trascini il contenuto segue il dito; oltre il primo mese o il mese in corso si sposta appena. */
+let msw = null;
+document.addEventListener('touchstart', e => {
+  msw = null;
+  if (S.view !== 'spese' || S.form || !S.sp || openRow || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  if (STANDALONE && t.clientX <= 28) return;
+  if (e.target.closest('.swipe, .sheet, input, select, textarea')) return;
+  msw = { x0: t.clientX, y0: t.clientY, dx: 0, on: null, t0: Date.now() };
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!msw) return;
+  const t = e.touches[0], dx = t.clientX - msw.x0, dy = t.clientY - msw.y0;
+  if (msw.on === null && Math.hypot(dx, dy) > 10) msw.on = Math.abs(dx) > Math.abs(dy) * 1.3;
+  if (msw.on === false) { msw = null; return; }
+  if (!msw.on) return;
+  msw.dx = dx;
+  const b = $('mbody');
+  if (!b) return;
+  const x = canMonth(dx < 0 ? 1 : -1) ? dx * 0.55 : dx * 0.15;
+  b.style.transition = 'none';
+  b.style.transform = `translateX(${x}px)`;
+  b.style.opacity = String(1 - Math.min(0.45, Math.abs(x) / 450));
+}, { passive: true });
+function monthSwipeEnd(cancel) {
+  const g = msw;
+  msw = null;
+  if (!g || !g.on) return;
+  eatClick = true;   // niente tocco involontario sul pulsante dove si stacca il dito
+  const dir = g.dx < 0 ? 1 : -1, b = $('mbody');
+  const far = Math.abs(g.dx) > 70 || (Math.abs(g.dx) > 35 && Date.now() - g.t0 < 250);
+  if (!cancel && far && canMonth(dir)) {
+    S.spDir = dir; S.spMonth = keyAdd(S.spMonth, dir); render();   // il mese nuovo entra scorrendo dal lato giusto
+  } else if (b) {
+    b.style.transition = 'transform .2s ease, opacity .2s ease';
+    b.style.transform = ''; b.style.opacity = '';
+  }
+}
+document.addEventListener('touchend', () => monthSwipeEnd(false));
+document.addEventListener('touchcancel', () => monthSwipeEnd(true));
 
 /* ---------- app sulla Home di iPhone: spazio della barra di stato ---------- */
 // in modalità a tutto schermo iOS a volte non segnala lo spazio occupato in alto (ora, batteria):
