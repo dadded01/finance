@@ -231,8 +231,12 @@
   :root { --warn: #c2620a; }
   @media (prefers-color-scheme: dark) { :root { --warn: #f0a243; } }
   .sphero > div:first-child { min-width: 0; }
-  .spr { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-  .pace { border: 0; background: none; padding: 0; text-align: right; line-height: 1.25; color: var(--muted); max-width: 150px; }
+  /* il lato destro occupa tutta l'altezza del sinistro: l'indicatore parte all'altezza di "SPESO A …"
+     e Categorie sta centrato sulla riga "N spese" */
+  .sphero.withpace { align-items: stretch; padding-bottom: 22px; }   /* Categorie scende un po': stessa distanza dalla scheda sotto */
+  .spr { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 8px; }
+  .spr .movbtn { margin-bottom: -8px; }
+  .pace { text-align: right; line-height: 1.25; color: var(--muted); max-width: 150px; }
   .pace .p1 { font-weight: 700; font-size: 16px; white-space: nowrap; color: var(--text); }
   .pace .p1b { font-weight: 600; font-size: 12.5px; }
   .pace.down .p1, .pace.down .p1b { color: var(--pos); }
@@ -1149,16 +1153,7 @@ function paceHtml(k) {
   const p1 = dir === 'even' ? '≈ in linea' : (dir === 'up' ? '▲ ' : '▼ ') + amt;
   const p1b = dir === 'even' ? 'con il solito' : (dir === 'up' ? 'più' : 'meno') + ' del solito';
   const p2 = p.past ? 'mese tipico ≈ ' + eur(p.typ) : 'fine mese ≈ ' + eur(p.proj);
-  return `<button class="pace ${dir}" data-pace="${k}" aria-label="${p1} ${p1b}, ${p2}"><div class="p1 num">${p1}</div><div class="p1b">${p1b}</div><div class="p2 num">${p2}</div></button>`;
-}
-
-// tocco sull'indicatore: da dove vengono i numeri
-function paceExplain(k) {
-  const p = paceInfo(k);
-  if (!p) return;
-  const base = 'mediana dei ' + p.n + ' mesi ' + p.span;
-  toast(p.past ? 'Mese tipico ' + eur(p.typ) + ' (' + base + ')'
-    : 'Di solito a questo punto avevi speso ' + eur(p.typ) + ', in tutto il mese ' + eur(p.typTot) + ' (' + base + ')');
+  return `<div class="pace ${dir}"><div class="p1 num">${p1}</div><div class="p1b">${p1b}</div><div class="p2 num">${p2}</div></div>`;
 }
 
 async function loadSpese() {
@@ -1205,7 +1200,7 @@ function renderSpese() {
     <button data-spm="1" ${k >= now ? 'disabled' : ''} aria-label="Mese successivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </div>
   <div class="mbody" id="mbody">
-  <div class="hero sphero">
+  <div class="hero sphero${tab === 'main' ? ' withpace' : ''}">
     <div>
       <div class="lbl">${cat ? esc(cat) + ' a ' + mese : 'Speso a ' + mese}</div>
       <div class="big num">${eur2(tot)}</div>
@@ -1655,8 +1650,6 @@ document.addEventListener('click', e => {
   } else if (t.id === 'save') {
     save();
   /* spese */
-  } else if (t.dataset.pace) {
-    paceExplain(t.dataset.pace);
   } else if (t.dataset.sptab) {
     S.spTab = t.dataset.sptab; S.spCat = null; render(); resetScroll();
   } else if (t.dataset.spcat) {
