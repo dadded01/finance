@@ -247,20 +247,14 @@
   .nw { white-space: nowrap; }
   /* nelle Spese lo scorrimento orizzontale lo gestisce l'app (cambio mese), quello verticale resta al telefono */
   body.vspese #scroller { touch-action: pan-y; }
-  /* grafico a torta nella pagina Categorie: le 4 categorie più grandi a colori, le altre insieme in grigio.
-     Colori scelti e verificati perché restino distinguibili tra loro in qualsiasi ordine, anche per chi
-     non distingue bene rosso e verde; le percentuali scritte sulle fette e la lista sotto fanno da legenda */
-  :root { --pie1: #2a78d6; --pie2: #008300; --pie3: #e87ba4; --pie4: #eda100; --pie-rest: #4f4e4a; --pie-rest-ink: #ffffff; }
-  @media (prefers-color-scheme: dark) {
-    :root { --pie1: #3987e5; --pie2: #008300; --pie3: #d55181; --pie4: #c98500; --pie-rest: #b4b3ac; --pie-rest-ink: #0b0b0b; }
-  }
-  .pie { display: block; width: 210px; height: 210px; margin: 8px auto 10px; overflow: visible; }
-  .pie circle[data-spcat] { cursor: pointer; }
-  .pie .lb { font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; fill: #fff; pointer-events: none; }
-  .pie .lb.ink { fill: #0b0b0b; }
-  .pie .lb.rest { fill: var(--pie-rest-ink); }
-  .pie .pc1 { font-size: 21px; font-weight: 700; text-anchor: middle; fill: var(--text); }
-  .pie .pc2 { font-size: 12px; text-anchor: middle; fill: var(--muted); }
+  /* grafico a torta nella pagina Categorie, stile Money Manager: torta piena, ogni categoria il suo colore
+     (dal rosso al viola in ordine di grandezza), etichette fuori con nome e percentuale collegate da una linea */
+  .pie { display: block; width: 100%; height: auto; margin: 12px 0 8px; overflow: visible; }
+  .pie path[data-spcat], .pie circle[data-spcat] { cursor: pointer; }
+  .pie .sl { stroke: var(--card); stroke-width: 1.5; stroke-linejoin: round; }
+  .pie .ln { fill: none; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+  .pie .t1 { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+  .pie .t2 { font-size: 12px; fill: var(--text); opacity: .85; }
   .subhead { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin: -4px 0 10px; }
   .subhead b { font-size: 17px; }
   .back { justify-self: start; display: flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px 4px 6px 0; color: var(--accent); font-size: 15px; }
@@ -1268,36 +1262,63 @@ function renderRiepilogo(items, tot) {
   return h + '</section>';
 }
 
-/* Torta delle categorie: list = [[categoria, € nel mese], …] dalla più grande.
- * Fino a 5 categorie: ognuna la sua fetta (la quinta in grigio). Di più: le prime 4 a colori + "Altre" in grigio.
- * Le fette partono da mezzogiorno in senso orario; tra una fetta e l'altra 2 px di stacco.
- * Tocco su una fetta colorata = come toccare la categoria nella lista. */
-const PIE_TOP = 4;
+/* Torta delle categorie, stile Money Manager: list = [[categoria, € nel mese], …] dalla più grande.
+ * Ogni categoria la sua fetta e il suo colore, in ordine di grandezza (dalla più grande: rosso, arancio,
+ * giallo, verde, azzurro, blu, viola…); dalla tredicesima in poi grigio. Le fette partono da mezzogiorno in
+ * senso orario. Fuori dalla torta: emoji, nome (accorciato) e percentuale, collegati alla fetta da una linea
+ * del suo colore; le etichette di un lato si distanziano tra loro per non sovrapporsi.
+ * Tocco su una fetta = come toccare la categoria nella lista. */
+const PIE_COLORS = ['#ff6b5e', '#ff9b4a', '#ffc542', '#f2dc2b', '#bfe24b', '#6fd36b', '#4fd8c8', '#5fb0ec', '#7d8ff0', '#b18ae8', '#e889c9', '#f0a3a3'];
+const PIE_GREY = '#9aa0a6';
 function pieParts(list, tot) {
   list = list.filter(x => x[1] > 0);
-  const rest = 'var(--pie-rest)';
-  const color = c => { const i = list.findIndex(x => x[0] === c); return i >= 0 && i < PIE_TOP ? `var(--pie${i + 1})` : rest; };
+  const colOf = i => i < PIE_COLORS.length ? PIE_COLORS[i] : PIE_GREY;
+  const color = c => colOf(Math.max(0, list.findIndex(x => x[0] === c)));
   if (!list.length || !(tot > 0)) return { svg: '', color };
-  const parts = list.length <= PIE_TOP + 1
-    ? list.map((x, i) => ({ cat: x[0], v: x[1], i }))
-    : list.slice(0, PIE_TOP).map((x, i) => ({ cat: x[0], v: x[1], i }))
-        .concat([{ cat: '', label: 'Altre', v: list.slice(PIE_TOP).reduce((t, x) => t + x[1], 0), i: PIE_TOP }]);
-  const R = 76, W = 30, C = 2 * Math.PI * R, GAP = parts.length > 1 ? 2 : 0;
-  let acc = 0, segs = '', labels = '';
-  parts.forEach(p => {
-    const f = p.v / tot, len = f * C, dash = Math.max(0.01, len - GAP);
-    const col = p.i < PIE_TOP ? `var(--pie${p.i + 1})` : rest;
-    segs += `<circle cx="100" cy="100" r="${R}" fill="none" stroke="${col}" stroke-width="${W}" stroke-dasharray="${dash.toFixed(2)} ${(C - dash).toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}" transform="rotate(-90 100 100)"${p.cat && p.i < PIE_TOP ? ` data-spcat="${esc(p.cat)}"` : ''}><title>${esc(p.cat || p.label)}</title></circle>`;
-    if (f >= 0.07) {   // percentuale scritta sulla fetta, se c'è spazio
-      const a = (acc + len / 2) / C * 2 * Math.PI - Math.PI / 2;
-      const cls = p.i === 3 ? 'lb ink' : p.i >= PIE_TOP ? 'lb rest' : 'lb';
-      labels += `<text class="${cls}" x="${(100 + R * Math.cos(a)).toFixed(1)}" y="${(100 + R * Math.sin(a)).toFixed(1)}">${fPct0.format(f)}</text>`;
-    }
-    acc += len;
+  const W = 340, R = 80, GAP = 16, LH = 30;                // larghezza, raggio, distanza etichette, altezza etichetta
+  const short = n => n.length > 8 ? n.slice(0, 7) + '…' : n;
+  // fette
+  let acc = 0;
+  const parts = list.map((x, i) => {
+    const f = x[1] / tot, a0 = acc * 2 * Math.PI - Math.PI / 2;
+    acc += f;
+    return { cat: x[0], f, col: colOf(i), a0, a1: acc * 2 * Math.PI - Math.PI / 2, mid: (a0 + acc * 2 * Math.PI - Math.PI / 2) / 2 };
   });
-  const aria = parts.map(p => (p.cat || p.label) + ' ' + fPct0.format(p.v / tot)).join(', ');
-  const svg = `<svg class="pie" viewBox="0 0 200 200" role="img" aria-label="Spese per categoria: ${esc(aria)}">${segs}${labels}
-    <text class="pc1 num" x="100" y="97">${eur(tot)}</text><text class="pc2" x="100" y="119">totale</text></svg>`;
+  // etichette: a destra o a sinistra secondo dove cade la fetta, poi distanziate in verticale
+  const labs = parts.filter(p => p.f >= 0.01).map(p => ({ p, side: Math.cos(p.mid) >= 0 ? 1 : -1, y: Math.sin(p.mid) * (R + GAP) }));
+  let H = 2 * R + 48;
+  [1, -1].forEach(side => {
+    const L = labs.filter(l => l.side === side).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < L.length; i++) if (L[i].y < L[i - 1].y + LH) L[i].y = L[i - 1].y + LH;
+    const span = L.length ? L[L.length - 1].y - L[0].y : 0;
+    H = Math.max(H, span + 2 * LH + 10);
+  });
+  const cx = W / 2, cy = H / 2;
+  [1, -1].forEach(side => {           // se le etichette escono in basso, risalgono tutte insieme
+    const L = labs.filter(l => l.side === side).sort((a, b) => a.y - b.y);
+    const over = L.length ? (L[L.length - 1].y + cy + LH / 2) - (H - 4) : 0;
+    if (over > 0) L.forEach(l => { l.y -= over; });
+    for (let i = L.length - 2; i >= 0; i--) if (L[i].y > L[i + 1].y - LH) L[i].y = L[i + 1].y - LH;
+  });
+  const P = (a, r) => [cx + r * Math.cos(a), cy + r * Math.sin(a)].map(v => v.toFixed(1));
+  let segs = '';
+  parts.forEach(p => {
+    const tap = ` data-spcat="${esc(p.cat)}"`, title = `<title>${esc(p.cat)}</title>`;
+    if (p.f >= 0.9999) { segs += `<circle class="sl" cx="${cx}" cy="${cy}" r="${R}" fill="${p.col}"${tap}>${title}</circle>`; return; }
+    const [x0, y0] = P(p.a0, R), [x1, y1] = P(p.a1, R);
+    segs += `<path class="sl" d="M${cx} ${cy}L${x0} ${y0}A${R} ${R} 0 ${p.f > 0.5 ? 1 : 0} 1 ${x1} ${y1}Z" fill="${p.col}"${tap}>${title}</path>`;
+  });
+  let lines = '', texts = '';
+  labs.forEach(l => {
+    const p = l.p, [ex, ey] = P(p.mid, R - 2), [kx, ky] = P(p.mid, R + 8);
+    const ly = cy + l.y, tx = cx + l.side * (R + GAP + 8);
+    lines += `<path class="ln" stroke="${p.col}" d="M${ex} ${ey}Q${kx} ${ky} ${(tx - l.side * 4).toFixed(1)} ${ly.toFixed(1)}"/>`;
+    const anchor = l.side > 0 ? 'start' : 'end';
+    texts += `<text text-anchor="${anchor}" x="${tx.toFixed(1)}" y="${(ly - 2).toFixed(1)}"><tspan class="t1">${catIcon(p.cat)} ${esc(short(p.cat))}</tspan>` +
+      `<tspan class="t2" x="${tx.toFixed(1)}" dy="15">${fPct.format(p.f)}</tspan></text>`;
+  });
+  const aria = parts.map(p => p.cat + ' ' + fPct.format(p.f)).join(', ');
+  const svg = `<svg class="pie" viewBox="0 0 ${W} ${Math.ceil(H)}" role="img" aria-label="Spese per categoria: ${esc(aria)}">${segs}${lines}${texts}</svg>`;
   return { svg, color };
 }
 
@@ -1672,7 +1693,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) commi
 /* ---------- eventi ---------- */
 document.addEventListener('click', e => {
   if (eatClick) { eatClick = false; e.preventDefault(); return; }
-  const t = e.target.closest('button, circle[data-spcat]');
+  const t = e.target.closest('button, path[data-spcat], circle[data-spcat]');
   if (!t) return;
   if (t.id === 'glogin') { googleLogin(); return; }
   if (t.dataset.bankcalc !== undefined) { bankCalc(); return; }
