@@ -417,7 +417,16 @@ const MASK = '****';
 const eur = n => S.hidden ? MASK + ' €' : n === null || isNaN(n) ? '—' : fEur0.format(n);
 const eur2 = n => S.hidden ? MASK + ' €' : n === null || isNaN(n) ? '—' : fEur2.format(n);
 const fCur = {};
-const money = (n, c) => S.hidden ? MASK + ' ' + c : (fCur[c] = fCur[c] || new Intl.NumberFormat('it-IT', { style: 'currency', currency: c, minimumFractionDigits: 2, maximumFractionDigits: 2 })).format(n);
+// importo nella sua valuta; una valuta vuota o scritta male nel foglio (es. "kr") non deve bloccare la pagina
+function money(n, c) {
+  c = String(c || '').trim();
+  if (S.hidden) return MASK + (c ? ' ' + esc(c) : '');
+  if (!(c in fCur)) {
+    try { fCur[c] = new Intl.NumberFormat('it-IT', { style: 'currency', currency: c, minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    catch (e) { fCur[c] = null; }
+  }
+  return fCur[c] ? fCur[c].format(n || 0) : fIn.format(n || 0) + (c ? ' ' + esc(c) : '');
+}
 const signed = (n, f) => S.hidden ? f(0) : (n > 0 ? '+' : n < 0 ? '−' : '') + f(Math.abs(n));
 const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'muted';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -445,23 +454,36 @@ const SESS_KEY = 'finanze_sess';
 const getSess = () => { try { return localStorage.getItem(SESS_KEY) || ''; } catch (e) { return ''; } };
 const setSess = v => { try { if (v) localStorage.setItem(SESS_KEY, v); else localStorage.removeItem(SESS_KEY); } catch (e) { /* niente */ } };
 
+// tempo massimo di attesa: con una rete che non risponde l'app non resta bloccata su "Carico…" o "Salvo…"
+const SLOW = ['bankCalcola', 'mercatoCalcola', 'bankStart', 'bankComplete'];
 async function call(fn, ...args) {
-  let res;
+  return callOpt(fn, args, {});
+}
+// keepalive: la richiesta parte anche se l'app viene chiusa subito dopo (es. eliminazione in sospeso)
+async function callOpt(fn, args, opt) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), SLOW.includes(fn) ? 120000 : 45000);
+  let res, out;
   try {
-    // text/plain: così il browser non fa la richiesta preliminare che Apps Script non gestisce
-    res = await fetch(CONFIG.API_URL, {
-      method: 'POST', redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fn, args, sess: getSess() })
-    });
-  } catch (e) {
-    throw new Error('Nessuna connessione con il foglio.');
+    try {
+      // text/plain: così il browser non fa la richiesta preliminare che Apps Script non gestisce
+      res = await fetch(CONFIG.API_URL, {
+        method: 'POST', redirect: 'follow', keepalive: !!opt.keepalive, signal: ctl ? ctl.signal : undefined,
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ fn, args, sess: getSess() })
+      });
+    } catch (e) {
+      throw new Error(e && e.name === 'AbortError' ? 'Il foglio non risponde: controlla la connessione e riprova.' : 'Nessuna connessione con il foglio.');
+    }
+    try { out = await res.json(); } catch (e) {
+      throw new Error(e && e.name === 'AbortError' ? 'Il foglio non risponde: controlla la connessione e riprova.' : 'Risposta non valida dal foglio: riprova tra poco.');
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  let out;
-  try { out = await res.json(); } catch (e) { throw new Error('Risposta non valida dal server (controlla il link /exec).'); }
-  if (!out.ok) {
-    if (out.auth) { setSess(''); showLogin(out.error); }
-    throw new Error(out.error || 'Errore');
+  if (!out || !out.ok) {
+    if (out && out.auth) { setSess(''); showLogin(out.error); }
+    throw new Error((out && out.error) || 'Errore');
   }
   return out.data;
 }
@@ -515,15 +537,22 @@ function jwtPayload(t) {
 // butta le modifiche non salvate e, con loro, i saldi calcolati (sono di oggi: non vanno mostrati in altri mesi)
 function dropEdits() { S.edits = {}; S.bank.calc = null; }
 
-async function load(year) {
-  if (isNet()) $('app').innerHTML = topbar('Patrimonio') + '<div class="state">Carico i dati…</div>';
+// silent: aggiornamento in sottofondo quando torni nell'app dopo un po' (niente "Carico…", resti sul mese che guardavi).
+// Ogni caricamento ha un numero: se nel frattempo ne è partito un altro (es. hai cambiato anno), quello vecchio si scarta.
+async function load(year, silent) {
+  const seq = S.loadSeq = (S.loadSeq || 0) + 1;
+  if (isNet() && !silent) $('app').innerHTML = topbar('Patrimonio') + '<div class="state">Carico i dati…</div>';
   try {
-    S.data = await call('getData', year || null);
-    S.dataErr = null;
-    dropEdits();
-    S.month = defaultMonth();
-    S.hMonth = lastDataMonth();
+    const d = await call('getData', year || null);
+    if (seq !== S.loadSeq) return;
+    // durante l'attesa hai iniziato a scrivere valori: l'aggiornamento in sottofondo non li tocca
+    if (silent && (S.view === 'input' || S.saving)) return;
+    const keep = silent && S.data && S.data.year === d.year;
+    S.data = d; S.dataAt = Date.now(); S.dataErr = null;
+    if (!keep) { dropEdits(); S.month = defaultMonth(); S.hMonth = lastDataMonth(); }
+    if (silent) S.bank.st = null;   // stato dei collegamenti alle banche riletto alla prossima visita di Inserisci
   } catch (e) {
+    if (seq !== S.loadSeq || silent) return;
     S.dataErr = e.message || String(e);
   }
   if (S.view !== 'spese') render();
@@ -608,7 +637,7 @@ function render() {
     return;
   }
   if (!S.data) {
-    $('app').innerHTML = topbar('Patrimonio') + (S.dataErr ? '<div class="state err">Errore: ' + esc(S.dataErr) + '</div>' : '<div class="state">Carico i dati…</div>');
+    $('app').innerHTML = topbar('Patrimonio') + (S.dataErr ? '<div class="state err">Errore: ' + esc(S.dataErr) + '<br><br><button class="btn" id="dataretry">Riprova</button></div>' : '<div class="state">Carico i dati…</div>');
     return;
   }
   $('app').innerHTML = topbar('Patrimonio') + (S.view === 'home' ? renderHome() : S.view === 'history' ? renderHistory() : renderInput());
@@ -846,9 +875,10 @@ function hasUserEdits() {
   return S.data && accounts().some(a => (a.row in S.edits) && parseNum(S.edits[a.row]) !== a.months[S.month]);
 }
 
+// i messaggi lunghi (errori) restano visibili più a lungo, così si fa in tempo a leggerli
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), Math.min(6000, 1800 + String(msg).length * 45));
 }
 
 async function save() {
@@ -856,7 +886,9 @@ async function save() {
   if (!c.list.length || c.invalid) return;
   S.saving = true; live();
   try {
-    S.data = await call('saveMonth', S.data.year, S.month, c.list);
+    const d = await call('saveMonth', S.data.year, S.month, c.list);
+    S.loadSeq = (S.loadSeq || 0) + 1;   // un aggiornamento in sottofondo partito prima non sovrascrive questi dati
+    S.data = d; S.dataAt = Date.now();
     S.edits = {};
     S.saving = false;
     render();
@@ -1084,7 +1116,8 @@ function renderSpese() {
     return '<div class="state">Carico le spese…</div>';
   }
   const k = S.spMonth, now = curMonthKey();
-  const first = S.sp.items.reduce((f, i) => i.d.slice(0, 7) < f ? i.d.slice(0, 7) : f, now);
+  // primo mese con spese (le righe senza una data valida non contano)
+  const first = S.sp.items.reduce((f, i) => /^\d{4}-\d{2}/.test(i.d) && i.d.slice(0, 7) < f ? i.d.slice(0, 7) : f, now);
   const tab = S.spTab;                // 'main' movimenti · 'cat' per categoria · 'mov' movimenti di una categoria
   const cat = tab === 'mov' ? S.spCat : null;
   const items = S.sp.items.filter(i => i.d.slice(0, 7) === k && (!cat || i.cat === cat)).sort((a, b) => b.d.localeCompare(a.d));
@@ -1242,12 +1275,22 @@ function pendBtn() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`;
 }
 
+// pagamenti già mostrati una volta (solo i codici, niente importi): quelli lasciati "Più tardi" non si riaprono
+// da soli a ogni apertura dell'app, restano nel pulsante "da confermare"
+const SEEN_KEY = 'finanze_pseen';
+try { JSON.parse(localStorage.getItem(SEEN_KEY) || '[]').forEach(p => S.pendSeen.add(p)); } catch (e) { /* niente */ }
+function markSeen(pid) {
+  S.pendSeen.add(pid);
+  const live = new Set(pendList().map(x => x.p));
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...S.pendSeen].filter(p => live.has(p)).slice(-60))); } catch (e) { /* niente */ }
+}
+
 // apre da solo il primo pagamento non ancora visto; force = tocco sul pulsante "da confermare"
 function openPending(force) {
   if (!S.sp || S.form || S.view === 'login' || S.prefill) return;
   const p = pendList().find(x => force || !S.pendSeen.has(x.p));
   if (!p) return;
-  S.pendSeen.add(p.p);
+  markSeen(p.p);
   openForm('', true);
   const ok = p.cat && S.sp.cats.some(c => c.name === p.cat);
   Object.assign(S.form, {
@@ -1267,9 +1310,14 @@ function nextPending() {
 async function discardPending() {
   const f = S.form;
   if (!f || !f.pid || S.fSaving) return;
+  // al posto di Scarta c'era Annulla: si chiede conferma, così un tocco per abitudine non perde il pagamento
+  const p = pendList().find(x => x.p === f.pid);
+  const what = p ? fIn.format(p.a) + ' ' + p.c + (p.m ? ' da ' + p.m : '') : 'questo pagamento';
+  if (!confirm('Scartare ' + what + '? Non verrà salvato tra le spese.')) return;
   S.fSaving = true; formLive();
   try {
     await call('scartaPending', f.pid);
+    touchSp();
     pendDone(f.pid);
     S.fSaving = false;
     closeForm(); render();
@@ -1281,23 +1329,39 @@ async function discardPending() {
   }
 }
 
+// ogni modifica fatta dall'app (salva, elimina, scarta, annulla) cambia questo numero: un ricaricamento
+// partito prima viene buttato, altrimenti farebbe ricomparire per un attimo i dati vecchi
+const touchSp = () => { S.spVer = (S.spVer || 0) + 1; };
+const spSig = d => d.items.length + '|' + d.items.reduce((t, i) => t + (i.a || 0) + (i.e || 0), 0).toFixed(2) + '|' +
+  d.items.reduce((t, i) => t + i.d.length + i.cat.length + i.n.length, 0) + '|' + (d.pending || []).map(x => x.p).join(',');
+
 // app che torna in primo piano (es. dopo aver pagato): ricarica le spese per vedere i pagamenti nuovi
 async function refreshSpese() {
   if (!getSess() || !S.sp || S.form || S.pend || S.spLoading || S.view === 'login' || Date.now() - S.spAt < 15000) return;
   S.spLoading = true;
+  const ver = S.spVer;
   try {
     const d = await call('getSpese');
-    S.spAt = Date.now();
-    if (!S.form && !S.pend) {
-      const changed = d.items.length !== S.sp.items.length || (d.pending || []).length !== pendList().length;
-      S.sp = d;
+    if (ver === S.spVer && !S.form && !S.pend) {
+      const changed = spSig(d) !== spSig(S.sp);
+      S.sp = d; S.spAt = Date.now();
       if (changed && !openRow && (S.view === 'spese' || S.view === 'start')) render();
     }
   } catch (e) { /* si riprova alla prossima apertura */ }
   S.spLoading = false;
   openPending();
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(refreshSpese, 300); });
+
+// ritorno nell'app (o rete tornata): riprova ciò che non era riuscito e aggiorna i dati vecchi
+function onForeground() {
+  if (!getSess() || S.view === 'login') return;
+  if (!S.sp) { if (S.spErr && !S.spLoading) { S.spErr = null; loadSpese(); } }
+  else refreshSpese();
+  if (!S.data) { if (S.dataErr) { S.dataErr = null; load(); } }
+  else if (Date.now() - (S.dataAt || 0) > 10 * 60000 && S.view !== 'input' && !S.saving) load(S.data.year, true);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(onForeground, 300); });
+window.addEventListener('online', () => setTimeout(onForeground, 500));
 
 function closeForm() {
   S.form = null;
@@ -1358,13 +1422,24 @@ function formLive() {
 async function saveForm() {
   const f = S.form;
   if (!formValid() || S.fSaving) return;
-  const payload = { id: f.id, d: f.d.slice(0, 16), a: parseNum(f.a), c: f.c, cat: f.cat, n: f.n.trim() };
+  // spesa nuova: l'ID lo sceglie l'app e resta lo stesso se riprovi dopo un errore di rete,
+  // così il foglio non può ritrovarsi la stessa spesa due volte
+  if (!f.id && !f.newId) f.newId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const payload = { id: f.id || f.newId, nuova: !f.id, d: f.d.slice(0, 16), a: parseNum(f.a), c: f.c, cat: f.cat, n: f.n.trim() };
   if (f.pid) payload.pid = f.pid;
   const o = f.orig;
   if (o && o.d === payload.d && o.a === payload.a && o.c === payload.c && o.cat === payload.cat && o.n === payload.n) { closeForm(); return; }
   S.fSaving = true; formLive();
   try {
-    const it = await call('saveSpesa', payload);
+    let it;
+    try {
+      it = await call('saveSpesa', payload);
+    } catch (e) {
+      // Code.gs non ancora aggiornato (non conosce le spese nuove con l'ID già scelto): si salva alla vecchia maniera
+      if (!payload.nuova || !/non trovata/i.test(e.message || '')) throw e;
+      it = await call('saveSpesa', Object.assign({}, payload, { id: '', nuova: false }));
+    }
+    touchSp();
     const idx = S.sp.items.findIndex(i => i.id === it.id);
     if (idx >= 0) S.sp.items[idx] = it; else S.sp.items.push(it);
     S.lastCur = it.c;
@@ -1387,6 +1462,7 @@ async function deleteForm() {
   S.fSaving = true; formLive();
   try {
     await call('deleteSpesa', f.id);
+    touchSp();
     S.sp.items = S.sp.items.filter(i => i.id !== f.id);
     S.fSaving = false;
     closeForm();
@@ -1443,27 +1519,35 @@ function swipeDelete(id) {
   if (!it) return;
   commitDelete();
   openRow = null;
+  touchSp();
   S.sp.items = S.sp.items.filter(i => i.id !== id);
   S.pend = { it, timer: setTimeout(commitDelete, 4000) };
   $('undo').hidden = false;
   render();
 }
-function commitDelete() {
+// leaving: l'app sta andando in sottofondo, la richiesta deve partire anche se iOS la sospende subito dopo
+function commitDelete(leaving) {
   const p = S.pend;
   if (!p) return;
   clearTimeout(p.timer); S.pend = null; $('undo').hidden = true;
-  call('deleteSpesa', p.it.id).catch(e => {
-    S.sp.items.push(p.it); if (S.view === 'spese') render();
+  S.delBusy = (S.delBusy || 0) + 1;
+  callOpt('deleteSpesa', [p.it.id], { keepalive: !!leaving }).then(() => touchSp(), e => {
+    touchSp();
+    // app in sottofondo: non si sa se il foglio l'ha ricevuta → al ritorno si rilegge il foglio e si vede com'è davvero
+    if (leaving) { S.spAt = 0; return; }
+    if (!S.sp.items.some(i => i.id === p.it.id)) S.sp.items.push(p.it);
+    if (S.view === 'spese' || S.view === 'start') render();
     toast('Errore: ' + (e.message || e));
-  });
+  }).finally(() => { S.delBusy--; });
 }
 function undoDelete() {
   const p = S.pend;
   if (!p) return;
   clearTimeout(p.timer); S.pend = null; $('undo').hidden = true;
+  touchSp();
   S.sp.items.push(p.it); render();
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) commitDelete(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) commitDelete(true); });
 
 /* ---------- eventi ---------- */
 document.addEventListener('click', e => {
@@ -1516,6 +1600,8 @@ document.addEventListener('click', e => {
     openForm('');
   } else if (t.id === 'spretry') {
     S.spErr = null; render();
+  } else if (t.id === 'dataretry') {
+    S.dataErr = null; load();
   } else if (t.dataset.fcur) {
     S.form.c = t.dataset.fcur; formLive();
   } else if (t.dataset.fcat) {
@@ -1787,7 +1873,8 @@ async function checkUpdate() {
     if (!res.ok) return;
     const fresh = pageCode(new DOMParser().parseFromString(await res.text(), 'text/html'));
     if (!fresh || fresh === pageCode(document)) return;
-    if (S.form || S.saving || S.fSaving || (S.bank && S.bank.busy) || (S.view === 'input' && hasUserEdits())) { updAt = 0; return; }
+    // niente ricaricamento mentre c'è qualcosa in corso (modulo aperto, salvataggi, eliminazione ancora annullabile)
+    if (S.form || S.saving || S.fSaving || S.pend || S.delBusy || (S.bank && S.bank.busy) || (S.view === 'input' && hasUserEdits())) { updAt = 0; return; }
     // al massimo un ricaricamento al minuto: se qualcosa va storto non entra mai in un giro infinito
     let last = 0;
     try { last = Number(sessionStorage.getItem('finanze_upd')) || 0; sessionStorage.setItem('finanze_upd', String(Date.now())); } catch (e) { /* niente */ }
