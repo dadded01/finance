@@ -1172,8 +1172,9 @@ function paceHtml(k) {
   const amt = S.hidden ? (p.typ > 0 ? fPct0.format(Math.abs(p.diff) / p.typ) : '') : fEur0.format(Math.abs(p.diff));
   const p1 = dir === 'even' ? '≈ in linea' : (dir === 'up' ? '▲ ' : '▼ ') + amt;
   const p1b = dir === 'even' ? 'con il solito' : (dir === 'up' ? 'più' : 'meno') + ' del solito';
-  const p2 = p.past ? 'mese tipico ≈ ' + eur(p.typ) : 'fine mese ≈ ' + eur(p.proj);
-  return `<div class="pace ${dir}"><div class="p1 num">${p1}</div><div class="p1b">${p1b}</div><div class="p2 num">${p2}</div></div>`;
+  // mesi passati: solo la differenza; mese in corso: anche la proiezione a fine mese
+  const p2 = p.past ? '' : `<div class="p2 num">fine mese ≈ ${eur(p.proj)}</div>`;
+  return `<div class="pace ${dir}"><div class="p1 num">${p1}</div><div class="p1b">${p1b}</div>${p2}</div>`;
 }
 
 async function loadSpese() {
